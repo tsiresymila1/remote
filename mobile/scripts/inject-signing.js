@@ -15,6 +15,9 @@ if (g.includes("MYAPP_UPLOAD_STORE_FILE")) {
 // 1. Add a release entry inside the existing signingConfigs block.
 const releaseConfig = `signingConfigs {
         release {
+            if (!project.hasProperty('MYAPP_UPLOAD_STORE_FILE')) {
+                throw new GradleException('MYAPP_UPLOAD_* signing properties are missing from android/gradle.properties')
+            }
             storeFile file(MYAPP_UPLOAD_STORE_FILE)
             storePassword MYAPP_UPLOAD_STORE_PASSWORD
             keyAlias MYAPP_UPLOAD_KEY_ALIAS

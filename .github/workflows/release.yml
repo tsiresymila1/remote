@@ -81,13 +81,17 @@ jobs:
       - name: Configure signing
         if: ${{ env.KEYSTORE_B64 != '' }}
         working-directory: mobile
+        env:
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          STORE_PW: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PW: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          cat >> android/gradle.properties <<EOF
-          MYAPP_UPLOAD_STORE_FILE=upload.keystore
-          MYAPP_UPLOAD_KEY_ALIAS=${{ secrets.ANDROID_KEY_ALIAS }}
-          MYAPP_UPLOAD_STORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          MYAPP_UPLOAD_KEY_PASSWORD=${{ secrets.ANDROID_KEY_PASSWORD }}
-          EOF
+          # Leading \n guards against a gradle.properties with no trailing newline
+          # (appending would glue the first property onto the previous line).
+          printf '\nMYAPP_UPLOAD_STORE_FILE=upload.keystore\nMYAPP_UPLOAD_KEY_ALIAS=%s\nMYAPP_UPLOAD_STORE_PASSWORD=%s\nMYAPP_UPLOAD_KEY_PASSWORD=%s\n' \
+            "$KEY_ALIAS" "$STORE_PW" "$KEY_PW" >> android/gradle.properties
+          echo "--- last lines of gradle.properties (passwords masked by Actions) ---"
+          tail -5 android/gradle.properties
           node scripts/inject-signing.js
 
       - name: Build release AAB + APK
