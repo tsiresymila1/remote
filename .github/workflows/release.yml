@@ -18,6 +18,8 @@ jobs:
   android:
     name: Android APK + AAB
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     outputs:
       tag: ${{ steps.ver.outputs.tag }}
     env:
@@ -160,6 +162,8 @@ jobs:
   desktop:
     name: Desktop (${{ matrix.platform }})
     if: ${{ github.ref_type == 'tag' }}
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
