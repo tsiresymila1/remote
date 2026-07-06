@@ -1,1 +1,65 @@
+@import "@fontsource/chivo-mono/400.css";
+@import "@fontsource/chivo-mono/500.css";
+@import "@fontsource/syne/700.css";
+@import "@fontsource/syne/800.css";
 @import "tailwindcss";
+
+@theme {
+  --color-ink: #0a0e0d;
+  --color-panel: #101614;
+  --color-line: #1e2a26;
+  --color-line-bright: #2a3c33;
+  --color-phos: #3ef08a;
+  --color-phos-dim: #1f7a4a;
+  --color-fog: #5c6e66;
+  --color-paper: #e8f2ec;
+  --font-mono: "Chivo Mono", ui-monospace, monospace;
+  --font-display: "Syne", sans-serif;
+}
+
+/* radar ping around the status core */
+@keyframes ping-ring {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+.ping-ring {
+  animation: ping-ring 2.2s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
+}
+.ping-ring-2 {
+  animation: ping-ring 2.2s cubic-bezier(0.2, 0.6, 0.4, 1) 0.7s infinite;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.fade-up {
+  animation: fade-up 0.5s ease both;
+}
+
+/* scanline texture */
+.scanlines::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 3px,
+    rgb(0 0 0 / 0.14) 3px,
+    rgb(0 0 0 / 0.14) 4px
+  );
+}

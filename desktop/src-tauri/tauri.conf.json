@@ -16,7 +16,8 @@
         "title": "Remote",
         "width": 380,
         "height": 300,
-        "resizable": false
+        "resizable": false,
+        "theme": "Dark"
       }
     ],
     "security": {

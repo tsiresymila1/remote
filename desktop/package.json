@@ -1,5 +1,5 @@
 {
-  "name": "desktop",
+  "name": "Remote",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -17,6 +17,8 @@
     "vite": "^8.1.3"
   },
   "dependencies": {
+    "@fontsource/chivo-mono": "^5.2.8",
+    "@fontsource/syne": "^5.2.7",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   }

@@ -3,20 +3,23 @@
 // tap Ctrl, then the next char/special key is sent as a combo, then they clear.
 import { useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
+import Azerty from "../components/Azerty";
 import { combo, key, typeText, useConnected } from "../lib/connection";
+import { keyHaptic } from "../lib/haptics";
+import { setKbFullscreen, useKbFullscreen } from "../lib/ui";
 
 const MODIFIERS: [string, string][] = [
-  ["ctrl", "ctrl"],
-  ["shift", "shift"],
-  ["alt", "alt"],
-  ["cmd", "cmd"],
+  ["CTRL", "ctrl"],
+  ["SHIFT", "shift"],
+  ["ALT", "alt"],
+  ["CMD", "cmd"],
 ];
 
 const SPECIALS: [string, string][] = [
   ["⏎", "enter"],
   ["⌫", "backspace"],
   ["⇥", "tab"],
-  ["esc", "escape"],
+  ["ESC", "escape"],
   ["←", "left"],
   ["↑", "up"],
   ["↓", "down"],
@@ -28,12 +31,22 @@ export default function Keyboard() {
   const connected = useConnected();
   const [buf, setBuf] = useState("");
   const [mods, setMods] = useState<string[]>([]);
+  const azerty = useKbFullscreen();
 
-  const toggleMod = (m: string) =>
+  // Full-screen AZERTY keyboard: locks landscape, App shell hides header + tabs.
+  // The red ✕ keycap (top right of the board) exits and restores portrait.
+  if (azerty) {
+    return <Azerty onClose={() => setKbFullscreen(false)} />;
+  }
+
+  const toggleMod = (m: string) => {
+    keyHaptic();
     setMods((cur) => (cur.includes(m) ? cur.filter((x) => x !== m) : [...cur, m]));
+  };
 
   // Send a key/char, wrapped in the active modifiers if any (then clear them).
   const emit = (k: string, isSpecial: boolean) => {
+    keyHaptic();
     if (mods.length > 0) {
       combo(mods, k);
       setMods([]);
@@ -62,12 +75,16 @@ export default function Keyboard() {
   };
 
   return (
-    <View className="flex-1 p-4">
-      <Text className="mb-2 text-slate-400">
-        {connected ? "Type here — sent live to the desktop" : "Not connected"}
+    <View className="flex-1 px-5 pt-5">
+      <Text
+        className={`mb-2 font-mono text-[10px] tracking-[3px] ${
+          connected ? "text-fog" : "text-ember"
+        }`}
+      >
+        {connected ? "LIVE FEED → DESKTOP" : "NO LINK"}
       </Text>
       <TextInput
-        className="min-h-[100px] rounded-xl border border-slate-700 bg-slate-800 p-3.5 text-base text-slate-200"
+        className="min-h-[96px] rounded-2xl border border-line bg-panel p-4 font-mono text-base text-paper"
         value={buf}
         onChangeText={onChange}
         onSubmitEditing={() => emit("enter", true)}
@@ -75,14 +92,14 @@ export default function Keyboard() {
         autoFocus
         autoCorrect={false}
         autoCapitalize="none"
-        placeholder="Start typing…"
-        placeholderTextColor="#64748b"
+        placeholder="type here…"
+        placeholderTextColor="#5C6E66"
         multiline
         textAlignVertical="top"
       />
 
-      <Text className="mb-1.5 mt-4 text-[13px] uppercase text-slate-400">
-        Modifiers {mods.length > 0 ? `· next key = ${[...mods, "…"].join("+")}` : ""}
+      <Text className="mb-2 mt-5 font-mono text-[10px] tracking-[3px] text-fog">
+        MODIFIERS{mods.length > 0 ? ` · ARMED: ${mods.join("+").toUpperCase()}+…` : ""}
       </Text>
       <View className="flex-row flex-wrap gap-2">
         {MODIFIERS.map(([label, m]) => {
@@ -90,11 +107,15 @@ export default function Keyboard() {
           return (
             <Pressable
               key={m}
-              className={`min-w-[52px] items-center rounded-xl px-3.5 py-3 ${on ? "bg-sky-400" : "bg-slate-700"}`}
+              className={`min-w-[64px] items-center rounded-xl border px-4 py-3 ${
+                on ? "border-phos bg-phos/15" : "border-line bg-panel"
+              }`}
               onPress={() => toggleMod(m)}
             >
               <Text
-                className={`text-base font-semibold ${on ? "text-slate-900" : "text-slate-200"}`}
+                className={`font-mono text-xs font-bold tracking-[2px] ${
+                  on ? "text-phos" : "text-paper"
+                }`}
               >
                 {label}
               </Text>
@@ -103,21 +124,34 @@ export default function Keyboard() {
         })}
       </View>
 
-      <Text className="mb-1.5 mt-4 text-[13px] uppercase text-slate-400">Keys</Text>
+      <Text className="mb-2 mt-5 font-mono text-[10px] tracking-[3px] text-fog">
+        KEYS
+      </Text>
       <View className="flex-row flex-wrap gap-2">
         {SPECIALS.map(([label, k]) => (
           <Pressable
             key={k + label}
-            className="min-w-[52px] items-center rounded-xl bg-slate-700 px-3.5 py-3"
+            className="min-w-[52px] items-center rounded-xl border border-line bg-panel px-3.5 py-3 active:border-phos-dim active:bg-phos/10"
             onPress={() => emit(k, true)}
           >
-            <Text className="text-base font-semibold text-slate-200">{label}</Text>
+            <Text className="font-mono text-base font-bold text-paper">{label}</Text>
           </Pressable>
         ))}
       </View>
 
-      <Pressable className="mt-4 items-center" onPress={() => setBuf("")}>
-        <Text className="text-sky-400">Clear field (no keys sent)</Text>
+      <Pressable className="mt-5 items-center" onPress={() => setBuf("")}>
+        <Text className="font-mono text-[11px] tracking-[2px] text-phos">
+          CLEAR FIELD · NOTHING SENT
+        </Text>
+      </Pressable>
+
+      <Pressable
+        className="mt-4 items-center rounded-xl border border-phos-dim bg-phos/10 py-3.5 active:bg-phos/20"
+        onPress={() => setKbFullscreen(true)}
+      >
+        <Text className="font-mono text-xs font-bold tracking-[2px] text-phos">
+          ⌨ FULL AZERTY KEYBOARD
+        </Text>
       </Pressable>
     </View>
   );

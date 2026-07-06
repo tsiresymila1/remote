@@ -1,0 +1,213 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      versionCode:
+        description: "Android versionCode (must increase each Play upload)"
+        required: true
+        default: "1"
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  # ── Android: expo prebuild + gradle. No Expo account needed. ──
+  android:
+    name: Android APK + AAB
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.ver.outputs.tag }}
+    env:
+      # Secrets can't be used in step `if:` directly — expose via env.
+      KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Tag for naming: the pushed git tag (v1.0.0), else v<app.json version>.
+      - name: Resolve tag
+        id: ver
+        working-directory: mobile
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG="${{ github.ref_name }}"
+          else
+            TAG="v$(node -p "require('./app.json').expo.version")"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Tag = $TAG"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install dependencies
+        working-directory: mobile
+        run: npm ci
+
+      # versionCode: from manual input, else derived from the run number.
+      - name: Set versionCode
+        working-directory: mobile
+        run: |
+          VC="${{ github.event.inputs.versionCode || github.run_number }}"
+          node -e "const f='app.json';const j=require('./'+f);j.expo.android=j.expo.android||{};j.expo.android.versionCode=Number('$VC');require('fs').writeFileSync(f,JSON.stringify(j,null,2));console.log('versionCode =',$VC)"
+
+      - name: Expo prebuild (android)
+        working-directory: mobile
+        run: npx expo prebuild -p android --clean --no-install
+
+      # ── Signing (optional): without secrets the build falls back to the
+      # debug keystore (sideload OK); with secrets it is Play-Store ready. ──
+      - name: Decode upload keystore
+        if: ${{ env.KEYSTORE_B64 != '' }}
+        working-directory: mobile
+        run: |
+          # Strip whitespace, then re-add missing '=' padding (often lost on copy).
+          B=$(printf '%s' "$KEYSTORE_B64" | tr -d '[:space:]')
+          PAD=$(( (4 - ${#B} % 4) % 4 ))
+          for i in $(seq 1 $PAD); do B="${B}="; done
+          printf '%s' "$B" | base64 -d > android/app/upload.keystore
+          test -s android/app/upload.keystore || { echo "Empty keystore — check ANDROID_KEYSTORE_BASE64"; exit 1; }
+
+      - name: Configure signing
+        if: ${{ env.KEYSTORE_B64 != '' }}
+        working-directory: mobile
+        run: |
+          cat >> android/gradle.properties <<EOF
+          MYAPP_UPLOAD_STORE_FILE=upload.keystore
+          MYAPP_UPLOAD_KEY_ALIAS=${{ secrets.ANDROID_KEY_ALIAS }}
+          MYAPP_UPLOAD_STORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          MYAPP_UPLOAD_KEY_PASSWORD=${{ secrets.ANDROID_KEY_PASSWORD }}
+          EOF
+          node scripts/inject-signing.js
+
+      - name: Build release AAB + APK
+        working-directory: mobile/android
+        run: ./gradlew :app:bundleRelease :app:assembleRelease --no-daemon
+
+      # Rename to Remote_<tag>.{aab,apk} so artifact + release assets are tagged.
+      - name: Rename outputs
+        working-directory: mobile/android/app/build/outputs
+        run: |
+          TAG="${{ steps.ver.outputs.tag }}"
+          cp bundle/release/app-release.aab "Remote_${TAG}.aab"
+          cp apk/release/app-release.apk "Remote_${TAG}.apk"
+
+      - name: Upload AAB (Play Store)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Remote_${{ steps.ver.outputs.tag }}_aab
+          path: mobile/android/app/build/outputs/Remote_${{ steps.ver.outputs.tag }}.aab
+          if-no-files-found: error
+
+      - name: Upload APK (sideload / test)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Remote_${{ steps.ver.outputs.tag }}_apk
+          path: mobile/android/app/build/outputs/Remote_${{ steps.ver.outputs.tag }}.apk
+          if-no-files-found: error
+
+      # Attach APK + AAB to a GitHub Release (only on tag push).
+      - name: Publish GitHub Release
+        if: ${{ github.ref_type == 'tag' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          files: |
+            mobile/android/app/build/outputs/Remote_${{ steps.ver.outputs.tag }}.apk
+            mobile/android/app/build/outputs/Remote_${{ steps.ver.outputs.tag }}.aab
+
+  # ── Deploy: upload the built AAB to the Play Store (internal track). ──
+  # Runs after `android`; skipped automatically when the Play secret is absent.
+  deploy:
+    needs: android
+    runs-on: ubuntu-latest
+    env:
+      PLAY_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+    steps:
+      - name: Download AAB artifact
+        if: ${{ env.PLAY_JSON != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: Remote_${{ needs.android.outputs.tag }}_aab
+          path: dist
+
+      - name: Upload to Play Store (internal)
+        if: ${{ env.PLAY_JSON != '' }}
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.tsiresymila.remote
+          releaseFiles: dist/Remote_${{ needs.android.outputs.tag }}.aab
+          track: internal
+          status: completed
+
+  # ── Desktop: Tauri bundles for macOS / Linux / Windows (tag push only). ──
+  desktop:
+    name: Desktop (${{ matrix.platform }})
+    if: ${{ github.ref_type == 'tag' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos
+            os: macos-latest
+          - platform: linux
+            os: ubuntu-22.04
+          - platform: windows
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
+            librsvg2-dev patchelf libgtk-3-dev
+
+      - name: Install dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Sync app version from tag (bundle names carry it)
+        shell: bash
+        working-directory: desktop
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          node -e "const fs=require('fs');const f='src-tauri/tauri.conf.json';const j=JSON.parse(fs.readFileSync(f));j.version='$V';fs.writeFileSync(f,JSON.stringify(j,null,2))"
+
+      - name: Build Tauri app (bundle name carries the tag)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: desktop
+          tagName: ${{ github.ref_name }}
+          releaseName: "Remote ${{ github.ref_name }}"
+          releaseDraft: false
+          prerelease: false
+          args: ""

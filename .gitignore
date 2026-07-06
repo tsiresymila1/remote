@@ -1,0 +1,10 @@
+node_modules/
+dist/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+mobile/android/
+mobile/ios/
+mobile/.expo/
+*.apk
+.DS_Store
+.claude/
