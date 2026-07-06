@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # Create (or force-recreate) a release tag and push it — retriggers the Release CI.
 # Usage:
-#   ./scripts/tag.sh            # tag = v<version from mobile/app.json>
-#   ./scripts/tag.sh v1.2.3     # explicit tag
+#   ./scripts/release.sh            # tag = v<version from mobile/app.json>
+#   ./scripts/release.sh v1.2.3     # explicit tag
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-TAG="v${1:-v$(node -p "require('./mobile/app.json').expo.version")}"
-[[ "$TAG" == v* ]] || { echo "Tag must start with 'v' (got: $TAG)"; exit 1; }
+TAG="${1:-v$(node -p "require('./mobile/app.json').expo.version")}"
+# Tauri requires strict x.y.z semver — reject anything else before CI does.
+[[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Tag must be full semver like v1.2.3 (got: $TAG)"; exit 1; }
 
 echo "→ Tag: $TAG"
 

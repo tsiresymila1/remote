@@ -127,30 +127,30 @@ jobs:
             mobile/android/app/build/outputs/Remote_${{ steps.ver.outputs.tag }}.apk
             mobile/android/app/build/outputs/Remote_${{ steps.ver.outputs.tag }}.aab
 
-  # ── Deploy: upload the built AAB to the Play Store (internal track). ──
-  # Runs after `android`; skipped automatically when the Play secret is absent.
-  deploy:
-    needs: android
-    runs-on: ubuntu-latest
-    env:
-      PLAY_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
-    steps:
-      - name: Download AAB artifact
-        if: ${{ env.PLAY_JSON != '' }}
-        uses: actions/download-artifact@v4
-        with:
-          name: Remote_${{ needs.android.outputs.tag }}_aab
-          path: dist
+  # # ── Deploy: upload the built AAB to the Play Store (internal track). ──
+  # # Runs after `android`; skipped automatically when the Play secret is absent.
+  # deploy:
+  #   needs: android
+  #   runs-on: ubuntu-latest
+  #   env:
+  #     PLAY_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+  #   steps:
+  #     - name: Download AAB artifact
+  #       if: ${{ env.PLAY_JSON != '' }}
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         name: Remote_${{ needs.android.outputs.tag }}_aab
+  #         path: dist
 
-      - name: Upload to Play Store (internal)
-        if: ${{ env.PLAY_JSON != '' }}
-        uses: r0adkll/upload-google-play@v1
-        with:
-          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
-          packageName: com.tsiresymila.remote
-          releaseFiles: dist/Remote_${{ needs.android.outputs.tag }}.aab
-          track: internal
-          status: completed
+  #     - name: Upload to Play Store (internal)
+  #       if: ${{ env.PLAY_JSON != '' }}
+  #       uses: r0adkll/upload-google-play@v1
+  #       with:
+  #         serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+  #         packageName: com.tsiresymila.remote
+  #         releaseFiles: dist/Remote_${{ needs.android.outputs.tag }}.aab
+  #         track: internal
+  #         status: completed
 
   # ── Desktop: Tauri bundles for macOS / Linux / Windows (tag push only). ──
   desktop:
@@ -197,7 +197,12 @@ jobs:
         shell: bash
         working-directory: desktop
         run: |
+          # Normalize to full x.y.z — tauri requires strict semver (v1 → 1.0.0, v1.2 → 1.2.0).
           V="${GITHUB_REF_NAME#v}"
+          [[ "$V" =~ ^[0-9]+$ ]] && V="$V.0.0"
+          [[ "$V" =~ ^[0-9]+\.[0-9]+$ ]] && V="$V.0"
+          V=$(grep -oE '^[0-9]+\.[0-9]+\.[0-9]+' <<< "$V" || echo "0.1.0")
+          echo "version = $V"
           node -e "const fs=require('fs');const f='src-tauri/tauri.conf.json';const j=JSON.parse(fs.readFileSync(f));j.version='$V';fs.writeFileSync(f,JSON.stringify(j,null,2))"
 
       - name: Build Tauri app (bundle name carries the tag)
