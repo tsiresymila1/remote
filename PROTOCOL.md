@@ -1,0 +1,34 @@
+# Wire protocol
+
+Two channels on the LAN:
+
+## 1. Discovery (UDP, port `41234`)
+- Phone broadcasts the ASCII string `REMOTE_DISCOVER` to `255.255.255.255:41234`.
+- Desktop replies (unicast) with JSON:
+  ```json
+  { "app": "remote", "name": "<hostname>", "ip": "<lan-ip>", "wsPort": 8090, "os": "darwin" }
+  ```
+- Phone connects to `ws://<ip>:<wsPort>`.
+
+## 2. Input stream (WebSocket, default port `8090`)
+JSON messages, one per frame. Mouse moves are **relative deltas**; the desktop keeps
+the real cursor position.
+
+| Message | Meaning |
+|---|---|
+| `{ "t":"m", "dx":12, "dy":-4 }` | move cursor by delta |
+| `{ "t":"down", "b":"left" }` | press button (start drag) |
+| `{ "t":"up", "b":"left" }` | release button |
+| `{ "t":"c", "b":"left", "n":1 }` | click; `n:2` = double-click |
+| `{ "t":"s", "dx":0, "dy":3 }` | scroll |
+| `{ "t":"txt", "s":"hello" }` | type text |
+| `{ "t":"key", "k":"enter" }` | special key (enter/backspace/tab/escape/space/arrows/delete/home/end/capslock) |
+| `{ "t":"combo", "mods":["ctrl","shift"], "k":"c" }` | modifier combo; `k` = single char or special-key name. mods: ctrl/shift/alt/cmd |
+| `{ "t":"ping" }` | keepalive → server replies `{"t":"pong"}` |
+
+`b` (button): `left` \| `right` \| `middle`. Defaults to `left`.
+
+## Security (v1)
+None. LAN-trusted: anyone on the WiFi can drive the cursor. Planned: 4-digit PIN — desktop
+shows it, phone sends `{ "t":"auth", "pin":"1234" }` as the first frame; server drops the
+socket if wrong.

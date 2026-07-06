@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "Remote",
+    "slug": "remote",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0A0E0D",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A0E0D"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.tsiresymila.remote"
+    },
+    "android": {
+      "package": "com.tsiresymila.remote",
+      "adaptiveIcon": {
+        "backgroundColor": "#0A0E0D",
+        "foregroundImage": "./assets/adaptive-icon.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}

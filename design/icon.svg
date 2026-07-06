@@ -1,0 +1,56 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bg" cx="35%" cy="30%" r="90%">
+      <stop offset="0%" stop-color="#14201B"/>
+      <stop offset="60%" stop-color="#0C1310"/>
+      <stop offset="100%" stop-color="#070B09"/>
+    </radialGradient>
+    <linearGradient id="cursor" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#5CFFB0"/>
+      <stop offset="100%" stop-color="#2BD98A"/>
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="28" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- plate -->
+  <rect x="0" y="0" width="1024" height="1024" rx="228" fill="url(#bg)"/>
+  <rect x="14" y="14" width="996" height="996" rx="214" fill="none" stroke="#2A3C33" stroke-width="4"/>
+
+  <!-- faint grid rings -->
+  <g stroke="#1D2B25" stroke-width="4" fill="none">
+    <circle cx="512" cy="512" r="330"/>
+    <circle cx="512" cy="512" r="220"/>
+  </g>
+  <g stroke="#1D2B25" stroke-width="4">
+    <line x1="512" y1="150" x2="512" y2="270"/>
+    <line x1="512" y1="754" x2="512" y2="874"/>
+    <line x1="150" y1="512" x2="270" y2="512"/>
+    <line x1="754" y1="512" x2="874" y2="512"/>
+  </g>
+
+  <!-- signal arcs from cursor tip -->
+  <g stroke="#3EF08A" fill="none" stroke-linecap="round" filter="url(#glow)">
+    <path d="M 566 400 A 150 150 0 0 1 624 458" stroke-width="34" opacity="0.95"/>
+    <path d="M 596 320 A 240 240 0 0 1 704 428" stroke-width="30" opacity="0.55"/>
+    <path d="M 626 240 A 330 330 0 0 1 784 398" stroke-width="26" opacity="0.30"/>
+  </g>
+
+  <!-- cursor arrow -->
+  <g filter="url(#glow)">
+    <path d="M 380 340
+             L 380 700
+             L 466 616
+             L 520 736
+             L 584 706
+             L 530 590
+             L 648 578
+             Z"
+          fill="url(#cursor)" stroke="#0A0E0D" stroke-width="14" stroke-linejoin="round"/>
+  </g>
+</svg>
