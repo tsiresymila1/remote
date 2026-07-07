@@ -1,7 +1,57 @@
-// enigo wrapper — the ONLY place that touches the OS. One Enigo per connection thread.
+// enigo wrapper — the ONLY place that touches the OS.
+//
+// macOS: enigo's key handling calls HIToolbox TSM APIs that assert the MAIN
+// dispatch queue (crash on macOS 26 otherwise). So injection never runs on
+// socket threads: they build a Cmd and the Tauri main thread applies it via
+// run(), which owns a lazily-created thread-local Enigo.
+use std::cell::RefCell;
+
 use enigo::{
     Axis, Button, Coordinate, Direction, Enigo, Key, Keyboard, Mouse, Settings,
 };
+
+// One input command, parsed on the socket thread, executed on the main thread.
+pub enum Cmd {
+    Move(i32, i32),
+    Press(Option<String>),
+    Release(Option<String>),
+    Click(Option<String>, i64),
+    Scroll(i32, i32),
+    Text(String),
+    Key(String),
+    Combo(Vec<String>, String),
+}
+
+thread_local! {
+    static INPUT: RefCell<Option<Input>> = const { RefCell::new(None) };
+}
+
+// Execute a command on the CURRENT thread (call this from the main thread only).
+pub fn run(cmd: Cmd) {
+    INPUT.with(|cell| {
+        let mut slot = cell.borrow_mut();
+        if slot.is_none() {
+            match Input::new() {
+                Ok(i) => *slot = Some(i),
+                Err(e) => {
+                    eprintln!("input init failed (check Accessibility perms): {e}");
+                    return;
+                }
+            }
+        }
+        let input = slot.as_mut().unwrap();
+        match &cmd {
+            Cmd::Move(dx, dy) => input.move_by(*dx, *dy),
+            Cmd::Press(btn) => input.press(btn.as_deref()),
+            Cmd::Release(btn) => input.release(btn.as_deref()),
+            Cmd::Click(btn, n) => input.click(btn.as_deref(), *n),
+            Cmd::Scroll(dx, dy) => input.scroll(*dx, *dy),
+            Cmd::Text(s) => input.text(s),
+            Cmd::Key(k) => input.key(k),
+            Cmd::Combo(mods, k) => input.combo(mods, k),
+        }
+    });
+}
 
 pub struct Input {
     enigo: Enigo,

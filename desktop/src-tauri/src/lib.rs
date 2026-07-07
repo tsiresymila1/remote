@@ -56,8 +56,9 @@ pub fn run() {
 
             // WebSocket input server; emit client count on every change.
             let handle = Arc::new(app.handle().clone());
+            let app_for_input = app.handle().clone();
             thread::spawn(move || {
-                server::start(WS_PORT, move |clients| {
+                server::start(WS_PORT, app_for_input, move |clients| {
                     CLIENTS.store(clients, Ordering::SeqCst);
                     let _ = handle.emit(
                         "status",
