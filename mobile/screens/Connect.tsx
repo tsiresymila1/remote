@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Animated, Easing, Pressable, Text, View } from "react-native";
 import { connect, disconnect, serverUrl, useConnected } from "../lib/connection";
-import { discover, Server } from "../lib/discovery";
+import { discover, Server, udpUnavailable } from "../lib/discovery";
 
 // Radar ping: two expanding rings while searching.
 function Ping() {
@@ -78,6 +78,14 @@ export default function Connect() {
 
   return (
     <View className="flex-1 px-5 pt-6">
+      {udpUnavailable && (
+        <View className="mb-3 rounded-xl border border-ember/50 bg-ember/10 px-4 py-2.5">
+          <Text className="font-mono text-[10px] leading-4 tracking-[1px] text-ember">
+            UDP MODULE MISSING — THIS BUILD IS STALE. USING SLOW SUBNET SCAN.
+            REBUILD: npx expo prebuild --clean && npx expo run:android
+          </Text>
+        </View>
+      )}
       {isConnected ? (
         <View className="items-center rounded-2xl border border-phos-dim bg-panel px-5 py-8">
           <View className="h-12 w-12 items-center justify-center rounded-full border border-phos bg-phos/10">

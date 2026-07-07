@@ -1,32 +1,38 @@
-// UDP discovery. Broadcast "REMOTE_DISCOVER", collect desktop replies for `timeout` ms.
+// Server discovery, two strategies:
+// 1. UDP broadcast (fast, needs the react-native-udp native module)
+// 2. Fallback: TCP sweep of the /24 subnet over WebSocket with a hello→info
+//    handshake — pure JS + expo-network, works even when UDP is unavailable.
 import dgram from "react-native-udp";
+import * as Network from "expo-network";
 
 const PORT = 41234;
+const WS_PORT = 8090;
 const MAGIC = "REMOTE_DISCOVER";
 
 export type Server = { name: string; ip: string; wsPort: number; os: string };
 
-let warned = false;
+// True when the UDP native module is missing (Expo Go / stale dev client).
+export let udpUnavailable = false;
 
-export function discover(timeout = 1500): Promise<Server[]> {
+export async function discover(timeout = 1500): Promise<Server[]> {
+  const viaUdp = await discoverUdp(timeout);
+  if (viaUdp.length > 0) return viaUdp;
+  // UDP dead or silent (module missing, broadcast blocked) → sweep the subnet.
+  return sweep();
+}
+
+function discoverUdp(timeout: number): Promise<Server[]> {
   return new Promise((resolve) => {
     const found = new Map<string, Server>();
     let sock: ReturnType<typeof dgram.createSocket>;
     try {
       sock = dgram.createSocket({ type: "udp4" });
-    } catch (e) {
-      // Native module missing — Expo Go or a dev client built before react-native-udp
-      // was added. Discovery is impossible; manual IP in Settings still works.
-      if (!warned) {
-        warned = true;
-        console.warn(
-          "UDP unavailable (rebuild the dev client: npx expo prebuild --clean && npx expo run:android|ios).",
-          e,
-        );
-      }
+    } catch {
+      udpUnavailable = true;
       resolve([]);
       return;
     }
+    udpUnavailable = false;
     // UdpSocket is an EventEmitter at runtime; RN's tsconfig lacks @types/node so on/once aren't typed.
     const ev = sock as unknown as {
       on(
@@ -64,4 +70,59 @@ export function discover(timeout = 1500): Promise<Server[]> {
       resolve([...found.values()]);
     }, timeout);
   });
+}
+
+// Try ws://<host>:8090 on every /24 neighbor; a server answers hello with info.
+async function sweep(): Promise<Server[]> {
+  let ip: string;
+  try {
+    ip = await Network.getIpAddressAsync();
+  } catch {
+    return []; // expo-network missing too — nothing we can do
+  }
+  if (!ip || ip.split(".").length !== 4) return [];
+  const base = ip.split(".").slice(0, 3).join(".");
+  const found: Server[] = [];
+
+  const probe = (host: string) =>
+    new Promise<void>((res) => {
+      let ws: WebSocket | null = null;
+      const done = () => {
+        try {
+          ws?.close();
+        } catch {}
+        res();
+      };
+      const timer = setTimeout(done, 600);
+      try {
+        ws = new WebSocket(`ws://${host}:${WS_PORT}`);
+      } catch {
+        clearTimeout(timer);
+        res();
+        return;
+      }
+      ws.onopen = () => ws?.send('{"t":"hello"}');
+      ws.onmessage = (e) => {
+        try {
+          const d = JSON.parse(String(e.data));
+          if (d.t === "info" && d.app === "remote")
+            found.push({ name: d.name, ip: host, wsPort: WS_PORT, os: d.os });
+        } catch {}
+        clearTimeout(timer);
+        done();
+      };
+      ws.onerror = () => {
+        clearTimeout(timer);
+        done();
+      };
+    });
+
+  const hosts = Array.from({ length: 254 }, (_, i) => `${base}.${i + 1}`).filter(
+    (h) => h !== ip,
+  );
+  const BATCH = 50;
+  for (let i = 0; i < hosts.length && found.length === 0; i += BATCH) {
+    await Promise.all(hosts.slice(i, i + BATCH).map(probe));
+  }
+  return found;
 }

@@ -90,6 +90,18 @@ fn dispatch(txt: &str, input: &mut Input, ws: &mut tungstenite::WebSocket<std::n
         Some("ping") => {
             let _ = ws.send(Message::Text("{\"t\":\"pong\"}".into()));
         }
+        // Discovery handshake for clients that can't use UDP broadcast:
+        // they sweep the subnet over WS and identify servers via hello → info.
+        Some("hello") => {
+            let reply = serde_json::json!({
+                "t": "info",
+                "app": "remote",
+                "name": gethostname::gethostname().to_string_lossy(),
+                "os": std::env::consts::OS,
+            })
+            .to_string();
+            let _ = ws.send(Message::Text(reply.into()));
+        }
         _ => {}
     }
 }
