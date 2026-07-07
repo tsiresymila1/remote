@@ -110,10 +110,17 @@ export default function Connect() {
           <Text className="mt-3 font-mono text-[10px] tracking-[3px] text-fog">
             SCANNING THIS NETWORK · EVERY 2S
           </Text>
-          <Text className="mt-2 text-center font-mono text-xs leading-5 text-fog">
-            Launch the desktop app on the same WiFi.{"\n"}Auto-connects on first
-            contact.
-          </Text>
+          {serverUrl() ? (
+            <Text className="mt-2 text-center font-mono text-xs leading-5 text-ember">
+              Trying {serverUrl()} — no answer yet.{"\n"}Check the desktop app is
+              running and up to date.
+            </Text>
+          ) : (
+            <Text className="mt-2 text-center font-mono text-xs leading-5 text-fog">
+              Launch the desktop app on the same WiFi.{"\n"}Auto-connects on first
+              contact.
+            </Text>
+          )}
         </View>
       )}
 
