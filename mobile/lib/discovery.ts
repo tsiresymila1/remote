@@ -21,12 +21,25 @@ export async function discover(timeout = 1500): Promise<Server[]> {
   return sweep();
 }
 
+const CLIENT_PORT = 41235; // fixed reply port; port 0 + the 'listening' event are flaky in react-native-udp
+
 function discoverUdp(timeout: number): Promise<Server[]> {
   return new Promise((resolve) => {
     const found = new Map<string, Server>();
+    let finished = false;
     let sock: ReturnType<typeof dgram.createSocket>;
+
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      try {
+        sock?.close();
+      } catch {}
+      resolve([...found.values()]);
+    };
+
     try {
-      sock = dgram.createSocket({ type: "udp4" });
+      sock = dgram.createSocket({ type: "udp4", reusePort: true } as { type: "udp4" });
     } catch {
       udpUnavailable = true;
       resolve([]);
@@ -35,12 +48,15 @@ function discoverUdp(timeout: number): Promise<Server[]> {
     udpUnavailable = false;
     // UdpSocket is an EventEmitter at runtime; RN's tsconfig lacks @types/node so on/once aren't typed.
     const ev = sock as unknown as {
+      on(e: "error", cb: (err: unknown) => void): void;
       on(
         e: "message",
         cb: (msg: Uint8Array | string, rinfo: { address: string }) => void,
       ): void;
-      once(e: "listening", cb: () => void): void;
     };
+
+    // Without an error listener the EventEmitter throws "Unhandled error" and red-screens.
+    ev.on("error", finish);
 
     ev.on("message", (msg, rinfo) => {
       try {
@@ -57,18 +73,23 @@ function discoverUdp(timeout: number): Promise<Server[]> {
       } catch {}
     });
 
-    ev.once("listening", () => {
-      sock.setBroadcast(true);
-      sock.send(MAGIC, 0, MAGIC.length, PORT, "255.255.255.255", () => {});
-    });
-
-    sock.bind(0); // ephemeral local port
-    setTimeout(() => {
-      try {
-        sock.close();
-      } catch {}
-      resolve([...found.values()]);
-    }, timeout);
+    // bind callback is reliable across lib versions; the 'listening' event can
+    // arrive after our timeout has already closed the socket.
+    try {
+      sock.bind(CLIENT_PORT, () => {
+        if (finished) return;
+        try {
+          sock.setBroadcast(true);
+          sock.send(MAGIC, 0, MAGIC.length, PORT, "255.255.255.255", () => {});
+        } catch {
+          finish();
+        }
+      });
+    } catch {
+      finish();
+      return;
+    }
+    setTimeout(finish, timeout);
   });
 }
 
