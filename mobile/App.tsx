@@ -4,14 +4,16 @@ import { Pressable, Text, View } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import Connect from "./screens/Connect";
 import Keyboard from "./screens/Keyboard";
+import ScreenView from "./screens/View";
 import Settings from "./screens/Settings";
 import Trackpad from "./screens/Trackpad";
 import { useConnected } from "./lib/connection";
 import { useKbFullscreen } from "./lib/ui";
 
-// ponytail: hand-rolled tab switch instead of expo-router — 4 screens, no nav dep needed.
+// ponytail: hand-rolled tab switch instead of expo-router — 5 screens, no nav dep needed.
 const TABS = [
   { key: "connect", label: "LINK", Comp: Connect },
+  { key: "view", label: "VIEW", Comp: ScreenView },
   { key: "trackpad", label: "PAD", Comp: Trackpad },
   { key: "keyboard", label: "KEYS", Comp: Keyboard },
   { key: "settings", label: "TUNE", Comp: Settings },

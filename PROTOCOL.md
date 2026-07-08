@@ -12,13 +12,22 @@ Two channels on the LAN:
   address, not the advertised `ip` (multi-homed hosts).
 
 ## 3. Screen stream (HTTP, default port `8091`)
-- `GET /stream` → MJPEG: `multipart/x-mixed-replace; boundary=frame`, ~12 fps,
+- Both routes require the pairing PIN as a query param: `?pin=1234` (else `403`).
+- `GET /stream?pin=` → MJPEG: `multipart/x-mixed-replace; boundary=frame`, ~12 fps,
   primary monitor downscaled to 1280px wide, JPEG q60.
-- `GET /` → minimal HTML viewer (for browsers / WebViews).
+- `GET /?pin=` → minimal HTML viewer (for browsers / WebViews).
 - Capture runs only while at least one client is connected.
 - macOS requires the **Screen Recording** permission (separate from Accessibility).
 
 ## 2. Input stream (WebSocket, default port `8090`)
+
+### Pairing (required first frame)
+The desktop shows a 4-digit PIN. The client's **first** WS frame must be
+`{ "t": "auth", "pin": "1234" }`. Server replies `{"t":"authok"}` (proceed) or
+`{"t":"authfail"}` then closes. Input frames before `authok` are ignored; the
+`hello` discovery frame is the one exception allowed pre-auth.
+
+### Frames
 JSON messages, one per frame. Mouse moves are **relative deltas**; the desktop keeps
 the real cursor position.
 

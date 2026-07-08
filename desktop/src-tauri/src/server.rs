@@ -43,13 +43,61 @@ fn handle(stream: std::net::TcpStream, app: &AppHandle) {
         Err(_) => return,
     };
 
+    // PIN gate: the first frame must be a correct {t:"auth",pin:"..."} or we drop.
+    let mut authed = false;
     loop {
         match ws.read() {
-            Ok(Message::Text(txt)) => dispatch(&txt, app, &mut ws),
+            Ok(Message::Text(txt)) => {
+                if authed {
+                    dispatch(&txt, app, &mut ws);
+                } else if is_hello(&txt) {
+                    let _ = ws.send(Message::Text(hello_reply().into())); // discovery works pre-auth
+                } else {
+                    match check_auth(&txt) {
+                        Some(true) => {
+                            authed = true;
+                            let _ = ws.send(Message::Text("{\"t\":\"authok\"}".into()));
+                        }
+                        Some(false) => {
+                            let _ = ws.send(Message::Text("{\"t\":\"authfail\"}".into()));
+                            break; // wrong PIN — disconnect
+                        }
+                        None => {} // ignore anything before auth
+                    }
+                }
+            }
             Ok(Message::Close(_)) | Err(_) => break,
             _ => {}
         }
     }
+}
+
+fn is_hello(txt: &str) -> bool {
+    serde_json::from_str::<Value>(txt)
+        .ok()
+        .and_then(|m| m.get("t").and_then(Value::as_str).map(|t| t == "hello"))
+        .unwrap_or(false)
+}
+
+// Discovery reply: identifies this server to a subnet-sweeping client (pre-auth).
+fn hello_reply() -> String {
+    serde_json::json!({
+        "t": "info",
+        "app": "remote",
+        "name": gethostname::gethostname().to_string_lossy(),
+        "streamPort": crate::stream::STREAM_PORT,
+        "os": std::env::consts::OS,
+    })
+    .to_string()
+}
+
+// Some(true/false) if this is an auth frame (pin match), None otherwise.
+fn check_auth(txt: &str) -> Option<bool> {
+    let m: Value = serde_json::from_str(txt).ok()?;
+    if m.get("t").and_then(Value::as_str)? != "auth" {
+        return None;
+    }
+    Some(m.get("pin").and_then(Value::as_str) == Some(crate::pin()))
 }
 
 fn dispatch(txt: &str, app: &AppHandle, ws: &mut tungstenite::WebSocket<std::net::TcpStream>) {
@@ -76,19 +124,6 @@ fn dispatch(txt: &str, app: &AppHandle, ws: &mut tungstenite::WebSocket<std::net
         }
         Some("ping") => {
             let _ = ws.send(Message::Text("{\"t\":\"pong\"}".into()));
-            None
-        }
-        // Discovery handshake for clients that can't use UDP broadcast:
-        // they sweep the subnet over WS and identify servers via hello → info.
-        Some("hello") => {
-            let reply = serde_json::json!({
-                "t": "info",
-                "app": "remote",
-                "name": gethostname::gethostname().to_string_lossy(),
-                "os": std::env::consts::OS,
-            })
-            .to_string();
-            let _ = ws.send(Message::Text(reply.into()));
             None
         }
         _ => None,

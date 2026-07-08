@@ -1,24 +1,32 @@
-// WebSocket client singleton. Send helpers mirror PROTOCOL.md. Auto-reconnects.
+// WebSocket client singleton. Sends a PIN auth frame first; only reports
+// `connected` after the server accepts it. Send helpers mirror PROTOCOL.md.
 import { useSyncExternalStore } from "react";
 
 let ws: WebSocket | null = null;
-let url = "";
-let connected = false;
+let host = "";
+let wsPort = 8090;
+let streamPort = 8091;
+let pin = "";
+let connected = false; // authenticated + open
+let authFailed = false;
 let manualClose = false;
 const listeners = new Set<() => void>();
 
 const emit = () => listeners.forEach((l) => l());
 
-export function connect(host: string, port = 8090) {
-  url = `ws://${host}:${port}`;
+export function connect(h: string, wp = 8090, sp = 8091, p = "") {
+  host = h;
+  wsPort = wp;
+  streamPort = sp;
+  pin = p;
   manualClose = false;
+  authFailed = false;
   open();
 }
 
 function open() {
-  // Detach the old socket completely so its late events can't clobber the new one's state.
   if (ws) {
-    ws.onopen = ws.onclose = ws.onerror = null;
+    ws.onopen = ws.onclose = ws.onerror = ws.onmessage = null;
     try {
       ws.close();
     } catch {}
@@ -26,12 +34,28 @@ function open() {
   connected = false;
   emit();
 
-  const sock = new WebSocket(url);
+  const sock = new WebSocket(`ws://${host}:${wsPort}`);
   ws = sock;
   sock.onopen = () => {
-    if (ws !== sock) return; // superseded by a newer connection
-    connected = true;
-    emit();
+    if (ws !== sock) return;
+    sock.send(JSON.stringify({ t: "auth", pin })); // must be the first frame
+  };
+  sock.onmessage = (e) => {
+    if (ws !== sock) return;
+    let m: { t?: string };
+    try {
+      m = JSON.parse(String(e.data));
+    } catch {
+      return;
+    }
+    if (m.t === "authok") {
+      connected = true;
+      emit();
+    } else if (m.t === "authfail") {
+      authFailed = true;
+      manualClose = true; // wrong PIN — stop, don't hammer with retries
+      emit();
+    }
   };
   sock.onclose = () => {
     if (ws !== sock) return;
@@ -39,7 +63,7 @@ function open() {
     emit();
     if (!manualClose) setTimeout(() => !manualClose && open(), 1500); // auto-reconnect
   };
-  sock.onerror = () => {}; // close handler drives reconnect
+  sock.onerror = () => {};
 }
 
 export function disconnect() {
@@ -51,11 +75,10 @@ export function disconnect() {
 }
 
 function send(obj: object) {
-  // readyState is the socket's own truth — the `connected` flag can lag during reconnects.
-  if (ws?.readyState !== WebSocket.OPEN) return;
+  if (ws?.readyState !== WebSocket.OPEN || !connected) return;
   try {
     ws.send(JSON.stringify(obj));
-  } catch {} // socket died between the check and the send — reconnect logic handles it
+  } catch {}
 }
 
 // Protocol helpers.
@@ -68,8 +91,11 @@ export const typeText = (s: string) => send({ t: "txt", s });
 export const key = (k: string) => send({ t: "key", k });
 export const combo = (mods: string[], k: string) => send({ t: "combo", mods, k });
 
-// React binding.
-export const serverUrl = () => url;
+// React bindings + accessors.
+export const serverUrl = () => `ws://${host}:${wsPort}`;
+export const streamUrl = () => `http://${host}:${streamPort}/?pin=${encodeURIComponent(pin)}`;
+export const authDidFail = () => authFailed;
+
 export function useConnected() {
   return useSyncExternalStore(
     (l) => {

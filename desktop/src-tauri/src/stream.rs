@@ -33,18 +33,33 @@ pub fn start(port: u16) {
 }
 
 fn handle(mut sock: TcpStream) -> std::io::Result<()> {
-    // Minimal request parse — only the path matters.
+    // Minimal request parse — path + query.
     let mut buf = [0u8; 2048];
     let n = sock.read(&mut buf)?;
     let req = String::from_utf8_lossy(&buf[..n]);
-    let path = req.split_whitespace().nth(1).unwrap_or("/");
+    let target = req.split_whitespace().nth(1).unwrap_or("/");
+    let (path, query) = target.split_once('?').unwrap_or((target, ""));
+    let pin = query
+        .split('&')
+        .find_map(|kv| kv.strip_prefix("pin="))
+        .unwrap_or("");
+
+    // PIN gate — same secret as the WS server.
+    if pin != crate::pin() {
+        write!(
+            sock,
+            "HTTP/1.1 403 Forbidden\r\nContent-Length: 4\r\nConnection: close\r\n\r\npin?"
+        )?;
+        return Ok(());
+    }
 
     if path != "/stream" {
-        let html = concat!(
-            "<!doctype html><title>Remote screen</title>",
-            "<body style=\"margin:0;background:#000\">",
-            "<img src=\"/stream\" style=\"width:100vw;height:100vh;object-fit:contain\">",
-            "</body>",
+        // Viewer page: img src carries the pin through.
+        let html = format!(
+            "<!doctype html><title>Remote screen</title>\
+             <body style=\"margin:0;background:#000\">\
+             <img src=\"/stream?pin={pin}\" style=\"width:100vw;height:100vh;object-fit:contain\">\
+             </body>"
         );
         write!(
             sock,

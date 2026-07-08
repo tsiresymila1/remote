@@ -9,7 +9,13 @@ const PORT = 41234;
 const WS_PORT = 8090;
 const MAGIC = "REMOTE_DISCOVER";
 
-export type Server = { name: string; ip: string; wsPort: number; os: string };
+export type Server = {
+  name: string;
+  ip: string;
+  wsPort: number;
+  streamPort: number;
+  os: string;
+};
 
 // True when the UDP native module is missing (Expo Go / stale dev client).
 export let udpUnavailable = false;
@@ -68,6 +74,7 @@ function discoverUdp(timeout: number): Promise<Server[]> {
             name: d.name,
             ip: rinfo.address,
             wsPort: d.wsPort,
+            streamPort: d.streamPort ?? 8091,
             os: d.os,
           });
       } catch {}
@@ -127,7 +134,13 @@ async function sweep(): Promise<Server[]> {
         try {
           const d = JSON.parse(String(e.data));
           if (d.t === "info" && d.app === "remote")
-            found.push({ name: d.name, ip: host, wsPort: WS_PORT, os: d.os });
+            found.push({
+              name: d.name,
+              ip: host,
+              wsPort: WS_PORT,
+              streamPort: d.streamPort ?? 8091,
+              os: d.os,
+            });
         } catch {}
         clearTimeout(timer);
         done();

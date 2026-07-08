@@ -5,7 +5,7 @@ mod stream;
 
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::thread;
 use tauri::{
     menu::{Menu, MenuItem},
@@ -16,12 +16,23 @@ use tauri::{
 const WS_PORT: u16 = 8090;
 
 static CLIENTS: AtomicUsize = AtomicUsize::new(0);
+static PIN: OnceLock<String> = OnceLock::new();
+
+// 4-digit pairing PIN, generated once per launch. Phone must send it to connect.
+pub fn pin() -> &'static str {
+    PIN.get_or_init(|| {
+        use rand::RngExt;
+        format!("{:04}", rand::rng().random_range(0..10_000))
+    })
+}
 
 #[tauri::command]
 fn get_status() -> Value {
     json!({
         "ips": discovery::lan_ips(),
         "wsPort": WS_PORT,
+        "streamPort": stream::STREAM_PORT,
+        "pin": pin(),
         "clients": CLIENTS.load(Ordering::SeqCst),
     })
 }
@@ -31,6 +42,12 @@ pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![get_status])
         .setup(|app| {
+            let handle = app.handle().clone();
+            let _ = handle.emit(
+                "status",
+                json!({ "ips": discovery::lan_ips(), "wsPort": WS_PORT, "streamPort": stream::STREAM_PORT, "pin": pin(), "clients": 0 }),
+            );
+
             // System tray: server keeps running when the window is closed.
             let show = MenuItem::with_id(app, "show", "Show window", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
@@ -66,7 +83,7 @@ pub fn run() {
                     CLIENTS.store(clients, Ordering::SeqCst);
                     let _ = handle.emit(
                         "status",
-                        json!({ "ips": discovery::lan_ips(), "wsPort": WS_PORT, "clients": clients }),
+                        json!({ "ips": discovery::lan_ips(), "wsPort": WS_PORT, "streamPort": stream::STREAM_PORT, "pin": pin(), "clients": clients }),
                     );
                 });
             });

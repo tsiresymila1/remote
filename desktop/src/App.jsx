@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
 export default function App() {
-  const [status, setStatus] = useState({ ips: [], wsPort: "—", clients: 0 });
+  const [status, setStatus] = useState({ ips: [], wsPort: "—", pin: "----", clients: 0 });
 
   useEffect(() => {
     invoke("get_status").then(setStatus).catch(() => {});
@@ -86,6 +86,14 @@ export default function App() {
               {ip}
             </span>
           ))}
+        </div>
+        <div className="mt-2 flex items-center gap-2">
+          <span className="text-[10px] uppercase tracking-[0.18em] text-fog">
+            pairing pin
+          </span>
+          <span className="font-mono text-lg tracking-[0.3em] text-phos">
+            {status.pin}
+          </span>
         </div>
         <div className="mt-1.5 text-[10px] text-fog">
           closing this window keeps the server alive in the tray

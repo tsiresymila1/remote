@@ -119,7 +119,7 @@ export default function Settings() {
           className="rounded-xl border border-phos-dim bg-phos/10 px-5 py-3 active:bg-phos/20"
           onPress={() => {
             Keyboard.dismiss();
-            if (ip.trim()) connect(ip.trim());
+            if (ip.trim()) connect(ip.trim(), 8090, 8091, settings.pin);
           }}
         >
           <Text className="font-mono text-xs font-bold tracking-[2px] text-phos">
