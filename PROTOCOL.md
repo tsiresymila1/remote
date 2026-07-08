@@ -6,9 +6,17 @@ Two channels on the LAN:
 - Phone broadcasts the ASCII string `REMOTE_DISCOVER` to `255.255.255.255:41234`.
 - Desktop replies (unicast) with JSON:
   ```json
-  { "app": "remote", "name": "<hostname>", "ip": "<lan-ip>", "wsPort": 8090, "os": "darwin" }
+  { "app": "remote", "name": "<hostname>", "ip": "<lan-ip>", "wsPort": 8090, "streamPort": 8091, "os": "darwin" }
   ```
-- Phone connects to `ws://<ip>:<wsPort>`.
+- Phone connects to `ws://<ip>:<wsPort>`. Clients should use the packet's source
+  address, not the advertised `ip` (multi-homed hosts).
+
+## 3. Screen stream (HTTP, default port `8091`)
+- `GET /stream` → MJPEG: `multipart/x-mixed-replace; boundary=frame`, ~12 fps,
+  primary monitor downscaled to 1280px wide, JPEG q60.
+- `GET /` → minimal HTML viewer (for browsers / WebViews).
+- Capture runs only while at least one client is connected.
+- macOS requires the **Screen Recording** permission (separate from Accessibility).
 
 ## 2. Input stream (WebSocket, default port `8090`)
 JSON messages, one per frame. Mouse moves are **relative deltas**; the desktop keeps

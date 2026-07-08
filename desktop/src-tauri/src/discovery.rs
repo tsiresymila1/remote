@@ -44,6 +44,7 @@ pub fn start(ws_port: u16) {
             "name": gethostname::gethostname().to_string_lossy(),
             "ip": lan_ip(),
             "wsPort": ws_port,
+            "streamPort": crate::stream::STREAM_PORT,
             "os": std::env::consts::OS,
         })
         .to_string();

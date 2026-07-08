@@ -1,6 +1,7 @@
 mod discovery;
 mod input;
 mod server;
+mod stream;
 
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -53,6 +54,9 @@ pub fn run() {
 
             // UDP discovery responder.
             thread::spawn(|| discovery::start(WS_PORT));
+
+            // MJPEG screen stream (captures only while a client is connected).
+            thread::spawn(|| stream::start(stream::STREAM_PORT));
 
             // WebSocket input server; emit client count on every change.
             let handle = Arc::new(app.handle().clone());
