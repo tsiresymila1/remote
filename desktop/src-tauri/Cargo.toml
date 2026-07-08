@@ -12,9 +12,12 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
-# Optimize dependencies (image resize, jpeg, xcap) even in dev builds — the
-# unoptimized versions make screen encoding ~10x slower. The app crate stays
-# debuggable at opt-level 0.
+# Optimize in dev builds — unoptimized image resize/jpeg + our own RGBA->RGB
+# glue loop make screen encoding ~10x slower. opt-level 2 on the app crate
+# vectorizes the pixel loop; deps go to 3.
+[profile.dev]
+opt-level = 2
+
 [profile.dev.package."*"]
 opt-level = 3
 
@@ -33,3 +36,4 @@ qrcode = { version = "0.14.1", default-features = false, features = ["svg"] }
 hmac = "0.13.0"
 sha2 = "0.11.0"
 fast_image_resize = "6.0.0"
+jpeg-encoder = { version = "0.7.0", features = ["simd"] }

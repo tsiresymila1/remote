@@ -199,16 +199,11 @@ fn encode_jpeg(
         )
         .map_err(|e| e.to_string())?;
 
-    // RGBA -> RGB (drop alpha) for the JPEG encoder.
+    // jpeg-encoder (SIMD) encodes the resized RGBA directly — no manual RGBA->RGB.
     let rgba = dst.into_vec();
-    let mut rgb = Vec::with_capacity((nw * nh * 3) as usize);
-    for px in rgba.chunks_exact(4) {
-        rgb.extend_from_slice(&px[..3]);
-    }
-
     let mut out = Vec::new();
-    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, JPEG_QUALITY)
-        .encode(&rgb, nw, nh, image::ExtendedColorType::Rgb8)
+    jpeg_encoder::Encoder::new(&mut out, JPEG_QUALITY)
+        .encode(&rgba, nw as u16, nh as u16, jpeg_encoder::ColorType::Rgba)
         .map_err(|e| e.to_string())?;
     Ok((out, t.elapsed().as_millis()))
 }
