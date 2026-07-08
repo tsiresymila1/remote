@@ -12,6 +12,12 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+# Optimize dependencies (image resize, jpeg, xcap) even in dev builds — the
+# unoptimized versions make screen encoding ~10x slower. The app crate stays
+# debuggable at opt-level 0.
+[profile.dev.package."*"]
+opt-level = 3
+
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 serde = { version = "1", features = ["derive"] }
@@ -26,3 +32,4 @@ rand = "0.10.2"
 qrcode = { version = "0.14.1", default-features = false, features = ["svg"] }
 hmac = "0.13.0"
 sha2 = "0.11.0"
+fast_image_resize = "6.0.0"

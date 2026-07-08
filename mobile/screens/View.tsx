@@ -59,7 +59,7 @@ export default function ScreenView() {
       {/* overlay panel */}
       {overlay !== "off" && (
         <View
-          className="absolute bottom-0 left-0 right-0 border-t border-line bg-ink/95"
+          className=" bottom-0 left-0 right-0 border-t border-line bg-ink/95"
           style={{ height: "55%" }}
         >
           {overlay === "pad" ? <Trackpad /> : <Keyboard />}

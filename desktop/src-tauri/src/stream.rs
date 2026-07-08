@@ -13,9 +13,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 pub const STREAM_PORT: u16 = 8091;
-const TARGET_WIDTH: u32 = 1152; // downscale retina captures; bandwidth over fidelity
-const FPS: u64 = 15;
-const JPEG_QUALITY: u8 = 55;
+const TARGET_WIDTH: u32 = 1280; // downscale retina captures; bandwidth over fidelity
+const FPS: u64 = 20;
+const JPEG_QUALITY: u8 = 70;
 
 // Latest captured frame, versioned so clients can tell "is there a new one?".
 struct Latest {
@@ -59,10 +59,18 @@ fn capture_loop() {
     };
     let interval = Duration::from_millis(1000 / FPS);
     let l = latest();
+    let mut last_log = Instant::now();
     while CLIENTS.load(Ordering::SeqCst) > 0 {
         let t0 = Instant::now();
-        match capture_jpeg(&monitor) {
-            Ok(jpeg) => {
+        let cap0 = Instant::now();
+        let capture = monitor.capture_image();
+        let cap_ms = cap0.elapsed().as_millis();
+        match capture.map_err(|e| e.to_string()).and_then(|img| encode_jpeg(img)) {
+            Ok((jpeg, enc_ms)) => {
+                if last_log.elapsed().as_secs() >= 1 {
+                    eprintln!("stream: capture {cap_ms}ms encode {enc_ms}ms size {}KB", jpeg.len() / 1024);
+                    last_log = Instant::now();
+                }
                 let mut g = l.lock.lock().unwrap();
                 g.0 += 1;
                 g.1 = jpeg;
@@ -168,15 +176,39 @@ fn primary_monitor() -> Result<xcap::Monitor, String> {
         .ok_or_else(|| "no primary monitor".into())
 }
 
-fn capture_jpeg(monitor: &xcap::Monitor) -> Result<Vec<u8>, String> {
-    let img = monitor.capture_image().map_err(|e| e.to_string())?;
+// Returns (jpeg, encode_ms). SIMD downscale (fast_image_resize) then JPEG encode.
+fn encode_jpeg(
+    img: image::ImageBuffer<image::Rgba<u8>, Vec<u8>>,
+) -> Result<(Vec<u8>, u128), String> {
+    use fast_image_resize as fr;
+    let t = Instant::now();
     let (w, h) = (img.width(), img.height());
     let nw = TARGET_WIDTH.min(w);
     let nh = (h as u64 * nw as u64 / w as u64) as u32;
-    let small = image::imageops::thumbnail(&img, nw, nh);
-    let rgb = image::DynamicImage::ImageRgba8(small).to_rgb8();
+
+    let src = fr::images::Image::from_vec_u8(w, h, img.into_raw(), fr::PixelType::U8x4)
+        .map_err(|e| e.to_string())?;
+    let mut dst = fr::images::Image::new(nw, nh, fr::PixelType::U8x4);
+    fr::Resizer::new()
+        .resize(
+            &src,
+            &mut dst,
+            &fr::ResizeOptions::new().resize_alg(fr::ResizeAlg::Convolution(
+                fr::FilterType::Bilinear,
+            )),
+        )
+        .map_err(|e| e.to_string())?;
+
+    // RGBA -> RGB (drop alpha) for the JPEG encoder.
+    let rgba = dst.into_vec();
+    let mut rgb = Vec::with_capacity((nw * nh * 3) as usize);
+    for px in rgba.chunks_exact(4) {
+        rgb.extend_from_slice(&px[..3]);
+    }
+
     let mut out = Vec::new();
-    let mut enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, JPEG_QUALITY);
-    enc.encode_image(&rgb).map_err(|e| e.to_string())?;
-    Ok(out)
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, JPEG_QUALITY)
+        .encode(&rgb, nw, nh, image::ExtendedColorType::Rgb8)
+        .map_err(|e| e.to_string())?;
+    Ok((out, t.elapsed().as_millis()))
 }
