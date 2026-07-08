@@ -15,6 +15,8 @@ export default function App() {
   }, []);
 
   const connected = status.clients > 0;
+  // qrcode crate prepends an <?xml …?> prolog that breaks innerHTML injection.
+  const qr = status.qr ? status.qr.slice(status.qr.indexOf("<svg")) : "";
 
   return (
     <div className="scanlines relative flex h-screen select-none flex-col overflow-hidden bg-ink font-mono text-paper">
@@ -44,8 +46,8 @@ export default function App() {
       {/* status core: QR + pairing info */}
       <main className="flex flex-1 items-center gap-4 px-5">
         <div
-          className="fade-up h-32 w-32 shrink-0 overflow-hidden rounded-xl bg-paper p-1.5 [&>svg]:h-full [&>svg]:w-full"
-          dangerouslySetInnerHTML={{ __html: status.qr }}
+          className="fade-up h-32 w-32 shrink-0 overflow-hidden rounded-xl bg-paper p-1.5 [&>svg]:block [&>svg]:h-full [&>svg]:w-full"
+          dangerouslySetInnerHTML={{ __html: qr }}
         />
         <div className="fade-up min-w-0" style={{ animationDelay: "0.1s" }}>
           <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-fog">
