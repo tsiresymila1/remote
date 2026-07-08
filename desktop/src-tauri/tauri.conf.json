@@ -14,8 +14,8 @@
     "windows": [
       {
         "title": "Remote",
-        "width": 380,
-        "height": 300,
+        "width": 400,
+        "height": 340,
         "resizable": false,
         "theme": "Dark"
       }

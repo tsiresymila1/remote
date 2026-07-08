@@ -22,7 +22,8 @@
         "backgroundColor": "#0A0E0D",
         "foregroundImage": "./assets/adaptive-icon.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": ["android.permission.CAMERA"]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -34,6 +35,12 @@
           "android": {
             "usesCleartextTraffic": true
           }
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Scan the pairing QR code shown on the desktop app."
         }
       ]
     ]

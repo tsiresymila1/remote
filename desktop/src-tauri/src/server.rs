@@ -43,7 +43,13 @@ fn handle(stream: std::net::TcpStream, app: &AppHandle) {
         Err(_) => return,
     };
 
-    // PIN gate: the first frame must be a correct {t:"auth",pin:"..."} or we drop.
+    // Challenge-response gate: send a nonce; the first auth frame must answer it
+    // with a valid token HMAC (QR pairing) or the PIN (fallback).
+    let nonce = crate::auth::nonce();
+    let _ = ws.send(Message::Text(
+        serde_json::json!({ "t": "challenge", "nonce": nonce }).to_string().into(),
+    ));
+
     let mut authed = false;
     loop {
         match ws.read() {
@@ -53,14 +59,14 @@ fn handle(stream: std::net::TcpStream, app: &AppHandle) {
                 } else if is_hello(&txt) {
                     let _ = ws.send(Message::Text(hello_reply().into())); // discovery works pre-auth
                 } else {
-                    match check_auth(&txt) {
+                    match check_auth(&txt, &nonce) {
                         Some(true) => {
                             authed = true;
                             let _ = ws.send(Message::Text("{\"t\":\"authok\"}".into()));
                         }
                         Some(false) => {
                             let _ = ws.send(Message::Text("{\"t\":\"authfail\"}".into()));
-                            break; // wrong PIN — disconnect
+                            break; // bad credentials — disconnect
                         }
                         None => {} // ignore anything before auth
                     }
@@ -91,13 +97,15 @@ fn hello_reply() -> String {
     .to_string()
 }
 
-// Some(true/false) if this is an auth frame (pin match), None otherwise.
-fn check_auth(txt: &str) -> Option<bool> {
+// Some(true/false) if this is an auth frame (hmac or pin), None otherwise.
+fn check_auth(txt: &str, nonce: &str) -> Option<bool> {
     let m: Value = serde_json::from_str(txt).ok()?;
     if m.get("t").and_then(Value::as_str)? != "auth" {
         return None;
     }
-    Some(m.get("pin").and_then(Value::as_str) == Some(crate::pin()))
+    let hmac = m.get("hmac").and_then(Value::as_str);
+    let pin = m.get("pin").and_then(Value::as_str);
+    Some(crate::auth::verify(hmac, pin, nonce))
 }
 
 fn dispatch(txt: &str, app: &AppHandle, ws: &mut tungstenite::WebSocket<std::net::TcpStream>) {

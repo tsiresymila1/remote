@@ -1,12 +1,15 @@
-// WebSocket client singleton. Sends a PIN auth frame first; only reports
-// `connected` after the server accepts it. Send helpers mirror PROTOCOL.md.
+// WebSocket client singleton. Answers the server's challenge with a token HMAC
+// (QR pairing) or the PIN (fallback); only reports `connected` after authok.
+// Send helpers mirror PROTOCOL.md.
 import { useSyncExternalStore } from "react";
+import { sha256 } from "js-sha256";
 
 let ws: WebSocket | null = null;
 let host = "";
 let wsPort = 8090;
 let streamPort = 8091;
 let pin = "";
+let token = ""; // hex; when present, auth uses HMAC and the token never leaves the phone
 let connected = false; // authenticated + open
 let authFailed = false;
 let manualClose = false;
@@ -14,11 +17,12 @@ const listeners = new Set<() => void>();
 
 const emit = () => listeners.forEach((l) => l());
 
-export function connect(h: string, wp = 8090, sp = 8091, p = "") {
+export function connect(h: string, wp = 8090, sp = 8091, p = "", tk = "") {
   host = h;
   wsPort = wp;
   streamPort = sp;
   pin = p;
+  token = tk;
   manualClose = false;
   authFailed = false;
   open();
@@ -36,24 +40,26 @@ function open() {
 
   const sock = new WebSocket(`ws://${host}:${wsPort}`);
   ws = sock;
-  sock.onopen = () => {
-    if (ws !== sock) return;
-    sock.send(JSON.stringify({ t: "auth", pin })); // must be the first frame
-  };
   sock.onmessage = (e) => {
     if (ws !== sock) return;
-    let m: { t?: string };
+    let m: { t?: string; nonce?: string };
     try {
       m = JSON.parse(String(e.data));
     } catch {
       return;
     }
-    if (m.t === "authok") {
+    if (m.t === "challenge" && m.nonce) {
+      // Prove we know the secret without sending it: HMAC(token, nonce).
+      const frame = token
+        ? { t: "auth", hmac: sha256.hmac(token, m.nonce) }
+        : { t: "auth", pin };
+      sock.send(JSON.stringify(frame));
+    } else if (m.t === "authok") {
       connected = true;
       emit();
     } else if (m.t === "authfail") {
       authFailed = true;
-      manualClose = true; // wrong PIN — stop, don't hammer with retries
+      manualClose = true; // bad credentials — stop, don't hammer with retries
       emit();
     }
   };
@@ -93,7 +99,13 @@ export const combo = (mods: string[], k: string) => send({ t: "combo", mods, k }
 
 // React bindings + accessors.
 export const serverUrl = () => `ws://${host}:${wsPort}`;
-export const streamUrl = () => `http://${host}:${streamPort}/?pin=${encodeURIComponent(pin)}`;
+export const streamUrl = () => {
+  // Token path: one-way derived stream key (token stays secret). Else PIN.
+  const q = token
+    ? `k=${sha256.hmac(token, "stream")}`
+    : `pin=${encodeURIComponent(pin)}`;
+  return `http://${host}:${streamPort}/?${q}`;
+};
 export const authDidFail = () => authFailed;
 
 export function useConnected() {

@@ -23,3 +23,6 @@ gethostname = "0.5"
 xcap = "0.9.6"
 image = { version = "0.25.10", default-features = false, features = ["jpeg"] }
 rand = "0.10.2"
+qrcode = { version = "0.14.1", default-features = false, features = ["svg"] }
+hmac = "0.13.0"
+sha2 = "0.11.0"

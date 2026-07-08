@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
 export default function App() {
-  const [status, setStatus] = useState({ ips: [], wsPort: "—", pin: "----", clients: 0 });
+  const [status, setStatus] = useState({ ips: [], wsPort: "—", pin: "----", qr: "", clients: 0 });
 
   useEffect(() => {
     invoke("get_status").then(setStatus).catch(() => {});
@@ -41,36 +41,25 @@ export default function App() {
         </div>
       </header>
 
-      {/* status core */}
-      <main className="flex flex-1 items-center gap-5 px-5">
-        <div className="relative grid h-16 w-16 shrink-0 place-items-center">
-          {!connected && (
-            <>
-              <span className="ping-ring absolute inset-0 rounded-full border border-phos-dim" />
-              <span className="ping-ring-2 absolute inset-0 rounded-full border border-phos-dim" />
-            </>
-          )}
-          <span
-            className={`grid h-9 w-9 place-items-center rounded-full border ${
-              connected
-                ? "border-phos bg-phos/15 shadow-[0_0_18px_rgba(62,240,138,0.45)]"
-                : "border-line-bright bg-panel"
-            }`}
-          >
-            <span
-              className={`h-2.5 w-2.5 rounded-full ${connected ? "bg-phos" : "bg-fog"}`}
-            />
-          </span>
-        </div>
-
+      {/* status core: QR + pairing info */}
+      <main className="flex flex-1 items-center gap-4 px-5">
+        <div
+          className="fade-up h-32 w-32 shrink-0 overflow-hidden rounded-xl bg-paper p-1.5 [&>svg]:h-full [&>svg]:w-full"
+          dangerouslySetInnerHTML={{ __html: status.qr }}
+        />
         <div className="fade-up min-w-0" style={{ animationDelay: "0.1s" }}>
-          <div className="text-[10px] uppercase tracking-[0.18em] text-fog">
-            {connected ? "link established" : "scanning for phones"}
-          </div>
-          <div className="mt-0.5 truncate text-xl font-medium text-phos">
+          <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-fog">
+            <span className={`h-2 w-2 rounded-full ${connected ? "bg-phos" : "bg-fog"}`} />
             {connected
-              ? `${status.clients} device${status.clients > 1 ? "s" : ""} connected`
-              : "Listening…"}
+              ? `${status.clients} device${status.clients > 1 ? "s" : ""} linked`
+              : "waiting to pair"}
+          </div>
+          <div className="mt-1 text-sm text-paper/90">Scan to pair</div>
+          <div className="mt-3 text-[10px] uppercase tracking-[0.18em] text-fog">
+            or enter pin
+          </div>
+          <div className="font-mono text-2xl tracking-[0.3em] text-phos">
+            {status.pin}
           </div>
         </div>
       </main>
@@ -86,14 +75,6 @@ export default function App() {
               {ip}
             </span>
           ))}
-        </div>
-        <div className="mt-2 flex items-center gap-2">
-          <span className="text-[10px] uppercase tracking-[0.18em] text-fog">
-            pairing pin
-          </span>
-          <span className="font-mono text-lg tracking-[0.3em] text-phos">
-            {status.pin}
-          </span>
         </div>
         <div className="mt-1.5 text-[10px] text-fog">
           closing this window keeps the server alive in the tray

@@ -6,4 +6,5 @@ export const settings = {
   naturalScroll: true, // false = inverted
   haptics: "light" as HapticLevel, // keyboard key-press feedback
   pin: "", // last pairing PIN, reused on auto-connect
+  token: "", // hex token from the last scanned QR (stronger than PIN)
 };

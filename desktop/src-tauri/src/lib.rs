@@ -1,3 +1,4 @@
+mod auth;
 mod discovery;
 mod input;
 mod server;
@@ -5,7 +6,7 @@ mod stream;
 
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use std::thread;
 use tauri::{
     menu::{Menu, MenuItem},
@@ -16,25 +17,42 @@ use tauri::{
 const WS_PORT: u16 = 8090;
 
 static CLIENTS: AtomicUsize = AtomicUsize::new(0);
-static PIN: OnceLock<String> = OnceLock::new();
 
-// 4-digit pairing PIN, generated once per launch. Phone must send it to connect.
-pub fn pin() -> &'static str {
-    PIN.get_or_init(|| {
-        use rand::RngExt;
-        format!("{:04}", rand::rng().random_range(0..10_000))
+// QR payload the phone scans: connection info + the secret token.
+fn qr_svg() -> String {
+    let payload = json!({
+        "ip": discovery::lan_ip(),
+        "ws": WS_PORT,
+        "st": stream::STREAM_PORT,
+        "tk": auth::token(),
+    })
+    .to_string();
+    match qrcode::QrCode::new(payload.as_bytes()) {
+        Ok(code) => code
+            .render::<qrcode::render::svg::Color>()
+            .min_dimensions(180, 180)
+            .quiet_zone(true)
+            .dark_color(qrcode::render::svg::Color("#0a0e0d"))
+            .light_color(qrcode::render::svg::Color("#e8f2ec"))
+            .build(),
+        Err(_) => String::new(),
+    }
+}
+
+fn status() -> Value {
+    json!({
+        "ips": discovery::lan_ips(),
+        "wsPort": WS_PORT,
+        "streamPort": stream::STREAM_PORT,
+        "pin": auth::pin(),
+        "qr": qr_svg(),
+        "clients": CLIENTS.load(Ordering::SeqCst),
     })
 }
 
 #[tauri::command]
 fn get_status() -> Value {
-    json!({
-        "ips": discovery::lan_ips(),
-        "wsPort": WS_PORT,
-        "streamPort": stream::STREAM_PORT,
-        "pin": pin(),
-        "clients": CLIENTS.load(Ordering::SeqCst),
-    })
+    status()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -43,10 +61,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![get_status])
         .setup(|app| {
             let handle = app.handle().clone();
-            let _ = handle.emit(
-                "status",
-                json!({ "ips": discovery::lan_ips(), "wsPort": WS_PORT, "streamPort": stream::STREAM_PORT, "pin": pin(), "clients": 0 }),
-            );
+            let _ = handle.emit("status", status());
 
             // System tray: server keeps running when the window is closed.
             let show = MenuItem::with_id(app, "show", "Show window", true, None::<&str>)?;
@@ -75,16 +90,13 @@ pub fn run() {
             // MJPEG screen stream (captures only while a client is connected).
             thread::spawn(|| stream::start(stream::STREAM_PORT));
 
-            // WebSocket input server; emit client count on every change.
+            // WebSocket input server; emit status on every client-count change.
             let handle = Arc::new(app.handle().clone());
             let app_for_input = app.handle().clone();
             thread::spawn(move || {
                 server::start(WS_PORT, app_for_input, move |clients| {
                     CLIENTS.store(clients, Ordering::SeqCst);
-                    let _ = handle.emit(
-                        "status",
-                        json!({ "ips": discovery::lan_ips(), "wsPort": WS_PORT, "streamPort": stream::STREAM_PORT, "pin": pin(), "clients": clients }),
-                    );
+                    let _ = handle.emit("status", status());
                 });
             });
             Ok(())

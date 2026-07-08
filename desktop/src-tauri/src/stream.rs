@@ -39,26 +39,30 @@ fn handle(mut sock: TcpStream) -> std::io::Result<()> {
     let req = String::from_utf8_lossy(&buf[..n]);
     let target = req.split_whitespace().nth(1).unwrap_or("/");
     let (path, query) = target.split_once('?').unwrap_or((target, ""));
-    let pin = query
-        .split('&')
-        .find_map(|kv| kv.strip_prefix("pin="))
-        .unwrap_or("");
+    let param = |name: &str| {
+        query
+            .split('&')
+            .find_map(|kv| kv.strip_prefix(name))
+    };
+    let k = param("k=");
+    let pin = param("pin=");
 
-    // PIN gate — same secret as the WS server.
-    if pin != crate::pin() {
+    // Auth gate: derived stream key (from QR token) or the PIN fallback.
+    if !crate::auth::verify_stream(k, pin) {
         write!(
             sock,
-            "HTTP/1.1 403 Forbidden\r\nContent-Length: 4\r\nConnection: close\r\n\r\npin?"
+            "HTTP/1.1 403 Forbidden\r\nContent-Length: 4\r\nConnection: close\r\n\r\nkey?"
         )?;
         return Ok(());
     }
 
     if path != "/stream" {
-        // Viewer page: img src carries the pin through.
+        // Viewer page: img src carries the same auth param through.
+        let q = k.map(|v| format!("k={v}")).unwrap_or_else(|| format!("pin={}", pin.unwrap_or("")));
         let html = format!(
             "<!doctype html><title>Remote screen</title>\
              <body style=\"margin:0;background:#000\">\
-             <img src=\"/stream?pin={pin}\" style=\"width:100vw;height:100vh;object-fit:contain\">\
+             <img src=\"/stream?{q}\" style=\"width:100vw;height:100vh;object-fit:contain\">\
              </body>"
         );
         write!(

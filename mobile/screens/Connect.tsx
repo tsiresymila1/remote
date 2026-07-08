@@ -1,4 +1,5 @@
-// Discover servers via UDP, enter the pairing PIN, connect over WebSocket.
+// Discover servers via UDP, pair by QR scan (or PIN fallback), connect over WS.
+import { CameraView, useCameraPermissions } from "expo-camera";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Animated, Easing, Pressable, Text, TextInput, View } from "react-native";
 import {
@@ -48,6 +49,8 @@ export default function Connect() {
   const [servers, setServers] = useState<Server[]>([]);
   const [scanning, setScanning] = useState(false);
   const [pin, setPin] = useState(settings.pin);
+  const [showCam, setShowCam] = useState(false);
+  const [perm, requestPerm] = useCameraPermissions();
   const isConnected = useConnected();
   const failed = authDidFail();
 
@@ -65,6 +68,47 @@ export default function Connect() {
     settings.pin = pin;
     connect(s.ip, s.wsPort, s.streamPort, pin);
   };
+
+  const openScanner = async () => {
+    if (!perm?.granted) {
+      const r = await requestPerm();
+      if (!r.granted) return;
+    }
+    setShowCam(true);
+  };
+
+  const onScan = ({ data }: { data: string }) => {
+    setShowCam(false);
+    try {
+      const p = JSON.parse(data); // { ip, ws, st, tk }
+      if (!p.ip || !p.tk) return;
+      settings.token = p.tk;
+      connect(p.ip, p.ws ?? 8090, p.st ?? 8091, "", p.tk);
+    } catch {}
+  };
+
+  if (showCam) {
+    return (
+      <View className="flex-1 bg-black">
+        <CameraView
+          style={{ flex: 1 }}
+          barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+          onBarcodeScanned={onScan}
+        />
+        <View className="absolute inset-x-0 top-6 items-center">
+          <Text className="font-mono text-xs tracking-[3px] text-paper">
+            POINT AT THE DESKTOP QR
+          </Text>
+        </View>
+        <Pressable
+          className="absolute inset-x-8 bottom-10 items-center rounded-xl border border-paper/40 bg-black/50 py-3"
+          onPress={() => setShowCam(false)}
+        >
+          <Text className="font-mono text-xs tracking-[2px] text-paper">CANCEL</Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   return (
     <View className="flex-1 px-5 pt-6">
@@ -87,11 +131,19 @@ export default function Connect() {
       ) : (
         <View className="items-center rounded-2xl border border-line bg-panel px-5 py-6">
           <Ping />
-          <Text className="mt-2 font-mono text-[10px] tracking-[3px] text-fog">
-            ENTER THE PIN SHOWN ON THE DESKTOP
+          <Pressable
+            className="mt-3 flex-row items-center gap-2 rounded-xl border border-phos-dim bg-phos/10 px-6 py-3 active:bg-phos/20"
+            onPress={openScanner}
+          >
+            <Text className="font-mono text-sm font-bold tracking-[2px] text-phos">
+              ⛶ SCAN QR
+            </Text>
+          </Pressable>
+          <Text className="mt-4 font-mono text-[10px] tracking-[3px] text-fog">
+            OR ENTER THE PIN
           </Text>
           <TextInput
-            className="mt-3 w-40 rounded-xl border border-line-bright bg-ink py-2 text-center font-mono text-2xl tracking-[8px] text-phos"
+            className="mt-2 w-40 rounded-xl border border-line-bright bg-ink py-2 text-center font-mono text-2xl tracking-[8px] text-phos"
             value={pin}
             onChangeText={(t) => setPin(t.replace(/[^0-9]/g, "").slice(0, 4))}
             placeholder="----"
@@ -101,7 +153,7 @@ export default function Connect() {
           />
           {failed && (
             <Text className="mt-2 font-mono text-[10px] tracking-[2px] text-ember">
-              WRONG PIN — TRY AGAIN
+              WRONG CREDENTIALS — TRY AGAIN
             </Text>
           )}
         </View>
