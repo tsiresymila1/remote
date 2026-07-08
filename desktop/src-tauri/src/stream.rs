@@ -13,9 +13,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 pub const STREAM_PORT: u16 = 8091;
-const TARGET_WIDTH: u32 = 1280; // downscale retina captures; bandwidth over fidelity
+const TARGET_WIDTH: u32 = 1920; // downscale width; raise toward native for sharper image
 const FPS: u64 = 20;
-const JPEG_QUALITY: u8 = 70;
+const JPEG_QUALITY: u8 = 85; // 0-100; higher = fewer compression artifacts, more bandwidth
 
 // Latest captured frame, versioned so clients can tell "is there a new one?".
 struct Latest {
@@ -192,7 +192,7 @@ fn encode_jpeg(
             &src,
             &mut dst,
             &fr::ResizeOptions::new().resize_alg(fr::ResizeAlg::Convolution(
-                fr::FilterType::Bilinear,
+                fr::FilterType::Lanczos3, // sharper downscale than bilinear
             )),
         )
         .map_err(|e| e.to_string())?;
