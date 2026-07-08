@@ -59,18 +59,14 @@ fn capture_loop() {
     };
     let interval = Duration::from_millis(1000 / FPS);
     let l = latest();
-    let mut last_log = Instant::now();
     while CLIENTS.load(Ordering::SeqCst) > 0 {
         let t0 = Instant::now();
-        let cap0 = Instant::now();
-        let capture = monitor.capture_image();
-        let cap_ms = cap0.elapsed().as_millis();
-        match capture.map_err(|e| e.to_string()).and_then(|img| encode_jpeg(img)) {
-            Ok((jpeg, enc_ms)) => {
-                if last_log.elapsed().as_secs() >= 1 {
-                    eprintln!("stream: capture {cap_ms}ms encode {enc_ms}ms size {}KB", jpeg.len() / 1024);
-                    last_log = Instant::now();
-                }
+        match monitor
+            .capture_image()
+            .map_err(|e| e.to_string())
+            .and_then(|img| encode_jpeg(img, &monitor))
+        {
+            Ok((jpeg, _enc_ms)) => {
                 let mut g = l.lock.lock().unwrap();
                 g.0 += 1;
                 g.1 = jpeg;
@@ -177,8 +173,10 @@ fn primary_monitor() -> Result<xcap::Monitor, String> {
 }
 
 // Returns (jpeg, encode_ms). SIMD downscale (fast_image_resize) then JPEG encode.
+// The OS capture omits the cursor, so we draw it in ourselves.
 fn encode_jpeg(
     img: image::ImageBuffer<image::Rgba<u8>, Vec<u8>>,
+    monitor: &xcap::Monitor,
 ) -> Result<(Vec<u8>, u128), String> {
     use fast_image_resize as fr;
     let t = Instant::now();
@@ -199,11 +197,71 @@ fn encode_jpeg(
         )
         .map_err(|e| e.to_string())?;
 
+    let mut rgba = dst.into_vec();
+    draw_cursor(&mut rgba, nw, nh, monitor, w);
+
     // jpeg-encoder (SIMD) encodes the resized RGBA directly — no manual RGBA->RGB.
-    let rgba = dst.into_vec();
     let mut out = Vec::new();
     jpeg_encoder::Encoder::new(&mut out, JPEG_QUALITY)
         .encode(&rgba, nw as u16, nh as u16, jpeg_encoder::ColorType::Rgba)
         .map_err(|e| e.to_string())?;
     Ok((out, t.elapsed().as_millis()))
+}
+
+// Draw an arrow cursor into the resized RGBA frame at the current mouse position.
+fn draw_cursor(buf: &mut [u8], nw: u32, nh: u32, monitor: &xcap::Monitor, cap_w: u32) {
+    use mouse_position::mouse_position::Mouse;
+    let (mx, my) = match Mouse::get_mouse_position() {
+        Mouse::Position { x, y } => (x, y),
+        Mouse::Error => return,
+    };
+    let (Ok(ox), Ok(oy), Ok(scale)) = (monitor.x(), monitor.y(), monitor.scale_factor()) else {
+        return;
+    };
+    // Cursor is in logical points; the capture is physical px. Map to resized px.
+    let px_per_unit = nw as f32 / cap_w as f32 * scale; // resized px per logical point
+    let cx = ((mx - ox) as f32 * px_per_unit) as i32;
+    let cy = ((my - oy) as f32 * px_per_unit) as i32;
+    if cx < 0 || cy < 0 || cx >= nw as i32 || cy >= nh as i32 {
+        return;
+    }
+
+    // Classic arrow: tip at (cx,cy), a filled white triangle with a black edge.
+    let tri = [(0.0f32, 0.0f32), (13.0, 5.0), (5.0, 13.0)];
+    let put = |buf: &mut [u8], x: i32, y: i32, c: [u8; 3]| {
+        if x < 0 || y < 0 || x >= nw as i32 || y >= nh as i32 {
+            return;
+        }
+        let i = ((y as u32 * nw + x as u32) * 4) as usize;
+        buf[i] = c[0];
+        buf[i + 1] = c[1];
+        buf[i + 2] = c[2];
+        buf[i + 3] = 255;
+    };
+    let inside = |x: f32, y: f32| {
+        let sign = |a: (f32, f32), b: (f32, f32)| (x - b.0) * (a.1 - b.1) - (a.0 - b.0) * (y - b.1);
+        let d1 = sign(tri[0], tri[1]);
+        let d2 = sign(tri[1], tri[2]);
+        let d3 = sign(tri[2], tri[0]);
+        let neg = d1 < 0.0 || d2 < 0.0 || d3 < 0.0;
+        let pos = d1 > 0.0 || d2 > 0.0 || d3 > 0.0;
+        !(neg && pos)
+    };
+    // Black 1px halo first (offsets), then white fill on top — cheap outline.
+    for dy in 0..15i32 {
+        for dx in 0..15i32 {
+            if inside(dx as f32, dy as f32) {
+                for (ox2, oy2) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                    put(buf, cx + dx + ox2, cy + dy + oy2, [0, 0, 0]);
+                }
+            }
+        }
+    }
+    for dy in 0..15i32 {
+        for dx in 0..15i32 {
+            if inside(dx as f32, dy as f32) {
+                put(buf, cx + dx, cy + dy, [255, 255, 255]);
+            }
+        }
+    }
 }
