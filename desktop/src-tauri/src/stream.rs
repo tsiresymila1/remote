@@ -1,18 +1,36 @@
 // MJPEG screen streaming over plain HTTP (multipart/x-mixed-replace).
-// `GET /stream` = the video feed; `GET /` = a minimal HTML viewer for browser
-// testing. Capture only runs while a client is connected — zero idle cost.
+// `GET /stream` = the video feed; `GET /` = a minimal HTML viewer.
 //
-// ponytail: one capture pipeline per client (a viewer is almost always alone);
-// share frames across clients if that ever changes.
+// Low latency by design: ONE capture loop keeps only the latest frame; each
+// client always sends the freshest frame and skips any it couldn't keep up with,
+// so frames never pile up in the TCP buffer (that pile is what causes multi-second
+// lag). Capture runs only while at least one client is connected.
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Condvar, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
 pub const STREAM_PORT: u16 = 8091;
-const TARGET_WIDTH: u32 = 1280; // downscale retina captures; bandwidth over fidelity
-const FPS: u64 = 12;
-const JPEG_QUALITY: u8 = 60;
+const TARGET_WIDTH: u32 = 1152; // downscale retina captures; bandwidth over fidelity
+const FPS: u64 = 15;
+const JPEG_QUALITY: u8 = 55;
+
+// Latest captured frame, versioned so clients can tell "is there a new one?".
+struct Latest {
+    lock: Mutex<(u64, Vec<u8>)>, // (version, jpeg)
+    cond: Condvar,
+}
+static LATEST: OnceLock<Latest> = OnceLock::new();
+static CLIENTS: AtomicUsize = AtomicUsize::new(0);
+
+fn latest() -> &'static Latest {
+    LATEST.get_or_init(|| Latest {
+        lock: Mutex::new((0, Vec::new())),
+        cond: Condvar::new(),
+    })
+}
 
 // Blocking. Call from a background thread.
 pub fn start(port: u16) {
@@ -23,31 +41,55 @@ pub fn start(port: u16) {
             return;
         }
     };
-    for stream in listener.incoming() {
-        if let Ok(sock) = stream {
-            thread::spawn(move || {
-                let _ = handle(sock); // client gone = loop ends, thread dies
-            });
+    for stream in listener.incoming().flatten() {
+        thread::spawn(move || {
+            let _ = handle(stream);
+        });
+    }
+}
+
+// The single capture loop: publishes the latest frame while clients > 0, then exits.
+fn capture_loop() {
+    let monitor = match primary_monitor() {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("no monitor: {e}");
+            return;
+        }
+    };
+    let interval = Duration::from_millis(1000 / FPS);
+    let l = latest();
+    while CLIENTS.load(Ordering::SeqCst) > 0 {
+        let t0 = Instant::now();
+        match capture_jpeg(&monitor) {
+            Ok(jpeg) => {
+                let mut g = l.lock.lock().unwrap();
+                g.0 += 1;
+                g.1 = jpeg;
+                drop(g);
+                l.cond.notify_all();
+            }
+            Err(e) => {
+                eprintln!("capture failed: {e} (macOS: grant Screen Recording in Privacy & Security)");
+                return;
+            }
+        }
+        if let Some(rest) = interval.checked_sub(t0.elapsed()) {
+            thread::sleep(rest);
         }
     }
 }
 
 fn handle(mut sock: TcpStream) -> std::io::Result<()> {
-    // Minimal request parse — path + query.
     let mut buf = [0u8; 2048];
     let n = sock.read(&mut buf)?;
     let req = String::from_utf8_lossy(&buf[..n]);
     let target = req.split_whitespace().nth(1).unwrap_or("/");
     let (path, query) = target.split_once('?').unwrap_or((target, ""));
-    let param = |name: &str| {
-        query
-            .split('&')
-            .find_map(|kv| kv.strip_prefix(name))
-    };
+    let param = |name: &str| query.split('&').find_map(|kv| kv.strip_prefix(name));
     let k = param("k=");
     let pin = param("pin=");
 
-    // Auth gate: derived stream key (from QR token) or the PIN fallback.
     if !crate::auth::verify_stream(k, pin) {
         write!(
             sock,
@@ -57,7 +99,6 @@ fn handle(mut sock: TcpStream) -> std::io::Result<()> {
     }
 
     if path != "/stream" {
-        // Viewer page: img src carries the same auth param through.
         let q = k.map(|v| format!("k={v}")).unwrap_or_else(|| format!("pin={}", pin.unwrap_or("")));
         let html = format!(
             "<!doctype html><title>Remote screen</title>\
@@ -74,7 +115,8 @@ fn handle(mut sock: TcpStream) -> std::io::Result<()> {
         return Ok(());
     }
 
-    let monitor = primary_monitor().map_err(std::io::Error::other)?;
+    // Send frames as they come. NODELAY so each frame ships immediately.
+    let _ = sock.set_nodelay(true);
     write!(
         sock,
         "HTTP/1.1 200 OK\r\n\
@@ -82,16 +124,31 @@ fn handle(mut sock: TcpStream) -> std::io::Result<()> {
          Cache-Control: no-cache\r\nConnection: close\r\n\r\n"
     )?;
 
-    let interval = Duration::from_millis(1000 / FPS);
+    // First client starts the capture loop.
+    if CLIENTS.fetch_add(1, Ordering::SeqCst) == 0 {
+        thread::spawn(capture_loop);
+    }
+    let result = stream_frames(&mut sock);
+    CLIENTS.fetch_sub(1, Ordering::SeqCst);
+    result
+}
+
+fn stream_frames(sock: &mut TcpStream) -> std::io::Result<()> {
+    let l = latest();
+    let mut sent = 0u64;
     loop {
-        let t0 = Instant::now();
-        let jpeg = match capture_jpeg(&monitor) {
-            Ok(j) => j,
-            Err(e) => {
-                // Most common cause on macOS: Screen Recording permission missing.
-                eprintln!("capture failed: {e} (macOS: grant Screen Recording in Privacy & Security)");
-                return Ok(());
+        // Wait for a frame newer than the one we last sent — always the freshest.
+        let jpeg = {
+            let mut g = l.lock.lock().unwrap();
+            while g.0 == sent {
+                let (ng, timeout) = l.cond.wait_timeout(g, Duration::from_secs(2)).unwrap();
+                g = ng;
+                if timeout.timed_out() && g.0 == sent {
+                    return Ok(()); // capture stalled/stopped — drop the client
+                }
             }
+            sent = g.0;
+            g.1.clone()
         };
         write!(
             sock,
@@ -100,9 +157,6 @@ fn handle(mut sock: TcpStream) -> std::io::Result<()> {
         )?;
         sock.write_all(&jpeg)?;
         sock.write_all(b"\r\n")?;
-        if let Some(rest) = interval.checked_sub(t0.elapsed()) {
-            thread::sleep(rest);
-        }
     }
 }
 
