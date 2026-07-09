@@ -62,7 +62,7 @@ export default function ScreenView() {
           className=" bottom-0 left-0 right-0 border-t border-line bg-ink/95"
           style={{ height: overlay === "pad" ? "40%" : "50%" }}
         >
-          {overlay === "pad" ? <Trackpad /> : <Keyboard />}
+          {overlay === "pad" ? <Trackpad gain={2.2} /> : <Keyboard />}
         </View>
       )}
     </View>

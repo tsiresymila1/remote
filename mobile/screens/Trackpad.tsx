@@ -21,7 +21,8 @@ const LONGPRESS_MS = 350;
 const SCROLL_FACTOR = 0.15;
 const SWIPE_THRESHOLD = 50; // px of 3-finger travel that counts as a swipe
 
-export default function Trackpad() {
+// `gain` multiplies sensitivity — used to compensate the smaller pad in View mode.
+export default function Trackpad({ gain = 1 }: { gain?: number }) {
   const connected = useConnected();
   const g = useRef({
     prevDx: 0,
@@ -98,7 +99,8 @@ export default function Trackpad() {
             g.prevDy = s.dy;
             return;
           }
-          move(Math.round(dx * settings.sensitivity), Math.round(dy * settings.sensitivity));
+          const speed = settings.sensitivity * gain;
+          move(Math.round(dx * speed), Math.round(dy * speed));
           g.prevDx = s.dx;
           g.prevDy = s.dy;
         },
@@ -141,7 +143,7 @@ export default function Trackpad() {
           }
         },
       }),
-    [g],
+    [g, gain],
   );
 
   return (
