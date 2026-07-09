@@ -104,7 +104,7 @@ export const combo = (mods: string[], k: string) => send({ t: "combo", mods, k }
 
 // React bindings + accessors.
 export const serverUrl = () => `ws://${host}:${wsPort}`;
-export const streamUrl = (mon = 0) => {
+export const streamUrl = (mon: number | "auto" = 0) => {
   // Token path: one-way derived stream key (token stays secret). Else PIN.
   const q = token
     ? `k=${sha256.hmac(token, "stream")}`

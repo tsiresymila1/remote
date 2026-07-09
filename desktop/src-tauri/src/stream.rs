@@ -7,7 +7,7 @@
 // lag). Capture runs only while at least one client is connected.
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -25,6 +25,15 @@ struct Latest {
 static LATEST: OnceLock<Latest> = OnceLock::new();
 static CLIENTS: AtomicUsize = AtomicUsize::new(0);
 static SELECTED_MON: AtomicUsize = AtomicUsize::new(0); // which monitor to stream
+static FOLLOW_CURSOR: AtomicBool = AtomicBool::new(false); // auto-follow the monitor under the cursor
+
+fn mouse_pos() -> Option<(i32, i32)> {
+    use mouse_position::mouse_position::Mouse;
+    match Mouse::get_mouse_position() {
+        Mouse::Position { x, y } => Some((x, y)),
+        Mouse::Error => None,
+    }
+}
 
 // Monitor list for the phone's screen picker: [{ i, name }].
 pub fn monitors_json() -> Vec<serde_json::Value> {
@@ -79,8 +88,14 @@ fn capture_loop() {
     let l = latest();
     while CLIENTS.load(Ordering::SeqCst) > 0 {
         let t0 = Instant::now();
+        // Follow mode: the monitor under the cursor. Else the selected index.
+        let picked = if FOLLOW_CURSOR.load(Ordering::SeqCst) {
+            mouse_pos().and_then(|(x, y)| xcap::Monitor::from_point(x, y).ok())
+        } else {
+            None
+        };
         let idx = SELECTED_MON.load(Ordering::SeqCst).min(monitors.len() - 1);
-        let monitor = &monitors[idx];
+        let monitor = picked.as_ref().unwrap_or(&monitors[idx]);
         match monitor
             .capture_image()
             .map_err(|e| e.to_string())
@@ -114,9 +129,14 @@ fn handle(mut sock: TcpStream) -> std::io::Result<()> {
     let k = param("k=");
     let pin = param("pin=");
 
-    // Optional monitor selection (?mon=N).
-    if let Some(n) = param("mon=").and_then(|v| v.parse::<usize>().ok()) {
-        SELECTED_MON.store(n, Ordering::SeqCst);
+    // Monitor selection: ?mon=N picks one, ?mon=auto follows the cursor.
+    if let Some(v) = param("mon=") {
+        if v == "auto" {
+            FOLLOW_CURSOR.store(true, Ordering::SeqCst);
+        } else if let Ok(n) = v.parse::<usize>() {
+            FOLLOW_CURSOR.store(false, Ordering::SeqCst);
+            SELECTED_MON.store(n, Ordering::SeqCst);
+        }
     }
 
     if !crate::auth::verify_stream(k, pin) {

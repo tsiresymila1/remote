@@ -13,7 +13,7 @@ export default function ScreenView() {
   const connected = useConnected();
   const monitors = useMonitors();
   const [overlay, setOverlay] = useState<Overlay>("pad");
-  const [mon, setMon] = useState(0);
+  const [mon, setMon] = useState<number | "auto">(0);
 
   if (!connected) {
     return (
@@ -54,8 +54,8 @@ export default function ScreenView() {
 
       {/* monitor picker (only when there's more than one) */}
       {monitors.length > 1 && (
-        <View className="absolute left-0 right-0 top-2 flex-row justify-center gap-2">
-          {monitors.map((m) => {
+        <View className="absolute left-0 right-0 top-2 flex-row flex-wrap justify-center gap-2">
+          {[{ i: "auto" as const, name: "AUTO" }, ...monitors].map((m) => {
             const on = mon === m.i;
             return (
               <Pressable
