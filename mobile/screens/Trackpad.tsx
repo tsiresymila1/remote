@@ -21,9 +21,13 @@ const LONGPRESS_MS = 350;
 const SCROLL_FACTOR = 0.15;
 const SWIPE_THRESHOLD = 50; // px of 3-finger travel that counts as a swipe
 
-// `gain` multiplies sensitivity — used to compensate the smaller pad in View mode.
-export default function Trackpad({ gain = 1 }: { gain?: number }) {
+// Reference pad height. Movement is normalized to this so the same sensitivity
+// setting feels identical whatever the pad size (full screen vs the small View pad).
+const REF_PAD_H = 640;
+
+export default function Trackpad() {
   const connected = useConnected();
+  const padH = useRef(REF_PAD_H);
   const g = useRef({
     prevDx: 0,
     prevDy: 0,
@@ -99,7 +103,7 @@ export default function Trackpad({ gain = 1 }: { gain?: number }) {
             g.prevDy = s.dy;
             return;
           }
-          const speed = settings.sensitivity * gain;
+          const speed = settings.sensitivity * (REF_PAD_H / padH.current);
           move(Math.round(dx * speed), Math.round(dy * speed));
           g.prevDx = s.dx;
           g.prevDy = s.dy;
@@ -143,13 +147,16 @@ export default function Trackpad({ gain = 1 }: { gain?: number }) {
           }
         },
       }),
-    [g, gain],
+    [g],
   );
 
   return (
     <View className="flex-1 p-4">
       <View
         className="flex-1 items-center justify-center overflow-hidden rounded-2xl border border-line bg-panel"
+        onLayout={(e) => {
+          if (e.nativeEvent.layout.height > 0) padH.current = e.nativeEvent.layout.height;
+        }}
         {...pan.panHandlers}
       >
         {/* corner ticks — precision-instrument framing */}
