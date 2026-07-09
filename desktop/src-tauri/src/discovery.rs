@@ -45,6 +45,7 @@ pub fn start(ws_port: u16) {
             "ip": lan_ip(),
             "wsPort": ws_port,
             "streamPort": crate::stream::STREAM_PORT,
+            "monitors": crate::stream::monitors_json(),
             "os": std::env::consts::OS,
         })
         .to_string();

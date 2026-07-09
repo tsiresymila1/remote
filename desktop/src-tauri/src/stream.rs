@@ -24,6 +24,23 @@ struct Latest {
 }
 static LATEST: OnceLock<Latest> = OnceLock::new();
 static CLIENTS: AtomicUsize = AtomicUsize::new(0);
+static SELECTED_MON: AtomicUsize = AtomicUsize::new(0); // which monitor to stream
+
+// Monitor list for the phone's screen picker: [{ i, name }].
+pub fn monitors_json() -> Vec<serde_json::Value> {
+    xcap::Monitor::all()
+        .unwrap_or_default()
+        .iter()
+        .enumerate()
+        .map(|(i, m)| {
+            let name = m
+                .friendly_name()
+                .or_else(|_| m.name())
+                .unwrap_or_else(|_| format!("Display {}", i + 1));
+            serde_json::json!({ "i": i, "name": name })
+        })
+        .collect()
+}
 
 fn latest() -> &'static Latest {
     LATEST.get_or_init(|| Latest {
@@ -48,12 +65,13 @@ pub fn start(port: u16) {
     }
 }
 
-// The single capture loop: publishes the latest frame while clients > 0, then exits.
+// The single capture loop: publishes the latest frame of the SELECTED monitor
+// while clients > 0, then exits.
 fn capture_loop() {
-    let monitor = match primary_monitor() {
-        Ok(m) => m,
-        Err(e) => {
-            eprintln!("no monitor: {e}");
+    let monitors = match xcap::Monitor::all() {
+        Ok(m) if !m.is_empty() => m,
+        _ => {
+            eprintln!("no monitors");
             return;
         }
     };
@@ -61,10 +79,12 @@ fn capture_loop() {
     let l = latest();
     while CLIENTS.load(Ordering::SeqCst) > 0 {
         let t0 = Instant::now();
+        let idx = SELECTED_MON.load(Ordering::SeqCst).min(monitors.len() - 1);
+        let monitor = &monitors[idx];
         match monitor
             .capture_image()
             .map_err(|e| e.to_string())
-            .and_then(|img| encode_jpeg(img, &monitor))
+            .and_then(|img| encode_jpeg(img, monitor))
         {
             Ok((jpeg, _enc_ms)) => {
                 let mut g = l.lock.lock().unwrap();
@@ -94,6 +114,11 @@ fn handle(mut sock: TcpStream) -> std::io::Result<()> {
     let k = param("k=");
     let pin = param("pin=");
 
+    // Optional monitor selection (?mon=N).
+    if let Some(n) = param("mon=").and_then(|v| v.parse::<usize>().ok()) {
+        SELECTED_MON.store(n, Ordering::SeqCst);
+    }
+
     if !crate::auth::verify_stream(k, pin) {
         write!(
             sock,
@@ -103,7 +128,10 @@ fn handle(mut sock: TcpStream) -> std::io::Result<()> {
     }
 
     if path != "/stream" {
-        let q = k.map(|v| format!("k={v}")).unwrap_or_else(|| format!("pin={}", pin.unwrap_or("")));
+        let mut q = k.map(|v| format!("k={v}")).unwrap_or_else(|| format!("pin={}", pin.unwrap_or("")));
+        if let Some(m) = param("mon=") {
+            q.push_str(&format!("&mon={m}"));
+        }
         let html = format!(
             "<!doctype html><title>Remote screen</title>\
              <body style=\"margin:0;background:#000\">\
@@ -162,14 +190,6 @@ fn stream_frames(sock: &mut TcpStream) -> std::io::Result<()> {
         sock.write_all(&jpeg)?;
         sock.write_all(b"\r\n")?;
     }
-}
-
-fn primary_monitor() -> Result<xcap::Monitor, String> {
-    let monitors = xcap::Monitor::all().map_err(|e| e.to_string())?;
-    monitors
-        .into_iter()
-        .find(|m| m.is_primary().unwrap_or(false))
-        .ok_or_else(|| "no primary monitor".into())
 }
 
 // Returns (jpeg, encode_ms). SIMD downscale (fast_image_resize) then JPEG encode.

@@ -92,6 +92,7 @@ fn hello_reply() -> String {
         "app": "remote",
         "name": gethostname::gethostname().to_string_lossy(),
         "streamPort": crate::stream::STREAM_PORT,
+        "monitors": crate::stream::monitors_json(),
         "os": std::env::consts::OS,
     })
     .to_string()
@@ -132,6 +133,11 @@ fn dispatch(txt: &str, app: &AppHandle, ws: &mut tungstenite::WebSocket<std::net
         }
         Some("ping") => {
             let _ = ws.send(Message::Text("{\"t\":\"pong\"}".into()));
+            None
+        }
+        Some("getmon") => {
+            let reply = serde_json::json!({ "t": "mon", "list": crate::stream::monitors_json() });
+            let _ = ws.send(Message::Text(reply.to_string().into()));
             None
         }
         _ => None,

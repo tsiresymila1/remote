@@ -13,6 +13,7 @@ let token = ""; // hex; when present, auth uses HMAC and the token never leaves 
 let connected = false; // authenticated + open
 let authFailed = false;
 let manualClose = false;
+let monitors: { i: number; name: string }[] = [];
 const listeners = new Set<() => void>();
 
 const emit = () => listeners.forEach((l) => l());
@@ -56,6 +57,10 @@ function open() {
       sock.send(JSON.stringify(frame));
     } else if (m.t === "authok") {
       connected = true;
+      sock.send('{"t":"getmon"}'); // ask which monitors are available
+      emit();
+    } else if (m.t === "mon" && Array.isArray((m as { list?: unknown }).list)) {
+      monitors = (m as { list: { i: number; name: string }[] }).list;
       emit();
     } else if (m.t === "authfail") {
       authFailed = true;
@@ -99,13 +104,23 @@ export const combo = (mods: string[], k: string) => send({ t: "combo", mods, k }
 
 // React bindings + accessors.
 export const serverUrl = () => `ws://${host}:${wsPort}`;
-export const streamUrl = () => {
+export const streamUrl = (mon = 0) => {
   // Token path: one-way derived stream key (token stays secret). Else PIN.
   const q = token
     ? `k=${sha256.hmac(token, "stream")}`
     : `pin=${encodeURIComponent(pin)}`;
-  return `http://${host}:${streamPort}/?${q}`;
+  return `http://${host}:${streamPort}/?${q}&mon=${mon}`;
 };
+
+export function useMonitors() {
+  return useSyncExternalStore(
+    (l) => {
+      listeners.add(l);
+      return () => listeners.delete(l);
+    },
+    () => monitors,
+  );
+}
 export const authDidFail = () => authFailed;
 
 export function useConnected() {

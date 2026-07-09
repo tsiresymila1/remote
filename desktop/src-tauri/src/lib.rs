@@ -46,6 +46,7 @@ fn status() -> Value {
         "streamPort": stream::STREAM_PORT,
         "pin": auth::pin(),
         "qr": qr_svg(),
+        "monitors": stream::monitors_json(),
         "clients": CLIENTS.load(Ordering::SeqCst),
     })
 }
