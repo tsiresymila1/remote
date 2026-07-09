@@ -195,7 +195,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
-            librsvg2-dev patchelf libgtk-3-dev libxdo-dev
+            librsvg2-dev patchelf libgtk-3-dev libxdo-dev \
+            libpipewire-0.3-dev libclang-dev
 
       - name: Install dependencies
         working-directory: desktop
